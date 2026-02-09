@@ -3,10 +3,21 @@
 <package format="3">
   <name>hardware_vllm_control</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Hardware-side ROS2 nodes for image capture, GPT navigation, and motor thrust control.</description>
+
   <maintainer email="ioes@todo.todo">ioes</maintainer>
   <license>Apache-2.0</license>
 
+  <!-- Runtime dependencies (required to run nodes) -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <!-- Python runtime libs (installed via pip on target) -->
+  <exec_depend>pigpio</exec_depend>
+  <exec_depend>openai</exec_depend>
+  <exec_depend>pydantic</exec_depend>
+
+  <!-- Tests (optional) -->
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
