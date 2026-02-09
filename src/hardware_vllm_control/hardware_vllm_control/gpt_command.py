@@ -60,8 +60,8 @@ class GPTImageRobotController(Node):
         self.model_name = "gpt-5.2"
 
         # Motor command publisher: /cmd_motor (forward/backward/left/right/stop)
-        self.move_pub = self.create_publisher(String, "move_direction", 10)
-        self.stop_pub = self.create_publisher(String, "stop_robot", 10)
+        self.cmd_pub = self.create_publisher(String, "/cmd_motor", 10)
+
 
         # Optional busy signal from thrust controller
         self.thrust_busy_sub = self.create_subscription(
@@ -178,14 +178,24 @@ class GPTImageRobotController(Node):
 
     def publish_motor_command(self, key: str):
         key = key.strip().lower()
-        if key in ("w","a","s","d"):
-            self.get_logger().info(f"[CMD PUB] move_direction <- {key}")
-            self.move_pub.publish(String(data=key))
-        elif key == "stop":
-            self.get_logger().info("[CMD PUB] stop_robot <- stop")
-            self.stop_pub.publish(String(data="stop"))
-        else:
+
+        # WASD -> cmd_motor 문자열로 변환
+        key_to_cmd = {
+            "w": "forward",
+            "a": "left",
+            "s": "backward",
+            "d": "right",
+            "stop": "stop",
+        }
+
+        cmd = key_to_cmd.get(key)
+        if cmd is None:
             self.get_logger().warn(f"[CMD MAP] Unknown key: {key}")
+            return
+
+        self.get_logger().info(f"[CMD PUB] /cmd_motor <- {cmd}")
+        self.cmd_pub.publish(String(data=cmd))
+
 
     def get_latest_image_path(self) -> Optional[str]:
         """

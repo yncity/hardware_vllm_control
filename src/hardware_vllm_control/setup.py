@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='ioes',
     maintainer_email='ioes@todo.todo',
-    description='TODO: Package description',
+    description='Hardware-side ROS2 nodes for image capture, GPT navigation, and motor thrust control.',
     license='Apache-2.0',
     extras_require={
         'test': [
@@ -24,6 +24,17 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            # image capture
+            'image_saver = hardware_vllm_control.image_saver:main',
+
+            # motor thrust control (pigpio)
+            'thrust_control = hardware_vllm_control.thrust_control:main',
+
+            # GPT-based navigation command
+            'gpt_command = hardware_vllm_control.gpt_command:main',
+            
+            # manual keyboard control
+            'manual_control = hardware_vllm_control.manual_control:main',
         ],
     },
 )
