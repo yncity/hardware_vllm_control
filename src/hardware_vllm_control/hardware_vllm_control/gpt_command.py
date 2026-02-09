@@ -3,39 +3,155 @@ import os
 import re
 import base64
 import threading
-import json
-import openai
+from typing import List, Optional, Tuple, Literal
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Bool
 
+from openai import OpenAI
+from pydantic import BaseModel
+
+
+# =========================
+# Pydantic output contracts (Structured Outputs via responses.parse)
+# =========================
+
+DuckPos = Literal[
+    "unknown", "center",
+    "left-5deg", "left-10deg", "left-15deg", "left-20deg", "left-25deg",
+    "left-30deg", "left-35deg", "left-40deg", "left-45deg",
+    "right-5deg", "right-10deg", "right-15deg", "right-20deg", "right-25deg",
+    "right-30deg", "right-35deg", "right-40deg", "right-45deg",
+]
+
+MoveStop = Literal["move", "stop"]
+WASD = Literal["w", "a", "s", "d"]
+
+
+class ThreatOut(BaseModel):
+    decision: MoveStop
+
+
+class NavOut(BaseModel):
+    decision: MoveStop
+    direction: WASD
+    duck_found: bool
+    duck_position: DuckPos
+
+
+class PathOut(BaseModel):
+    path: List[WASD]
+
 
 class GPTImageRobotController(Node):
     def __init__(self):
-        super().__init__('gpt_image_robot_controller')
+        super().__init__("gpt_image_robot_controller")
+        
+        # OpenAI API key
+        api_key = os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            self.get_logger().error(
+                "OpenAI API key not found. Please set GPT_API_KEY (or OPENAI_API_KEY)."
+            )
 
-        # OpenAI API 키
-        openai.api_key = os.getenv("GPT_API_KEY")
+        # OpenAI client
+        self.client = OpenAI(api_key=api_key)
+        self.model_name = "gpt-5.2"
 
-        # ✅ 모터 제어 토픽: /cmd_motor (문자열: forward/backward/left/right/stop)
-        self.cmd_motor_pub = self.create_publisher(String, '/cmd_motor', 10)
+        # Motor command publisher: /cmd_motor (forward/backward/left/right/stop)
+        self.move_pub = self.create_publisher(String, "move_direction", 10)
+        self.stop_pub = self.create_publisher(String, "stop_robot", 10)
 
-        # thrust_control 쪽에서 "지금 모터가 바쁘다" 상태를 알려줄 토픽 (옵션)
+        # Optional busy signal from thrust controller
         self.thrust_busy_sub = self.create_subscription(
-            Bool, 'thrust_busy', self.thrust_busy_callback, 10
+            Bool, "thrust_busy", self.thrust_busy_callback, 10
         )
 
-        # 경로 모드 상태 관리
+        # Path mode state
         self.in_path_mode = False
-        self.path_plan = []
+        self.path_actions: List[str] = []
         self.current_step = 0
 
-        # 상태 플래그
+        # State flags
         self.thrust_is_busy = False
         self.processing = False
 
-        # 주기적으로 main_process를 호출 (단, busy 아니고 processing 아닐 때만)
-        self.timer = self.create_timer(5.0, self.timer_callback)
+        # Loop timer (seconds)
+        self.timer_period = 5.0
+        self.timer = self.create_timer(self.timer_period, self.timer_callback)
+
+        # =========================
+        # Prompts (Verbose, paper-ready)
+        # =========================
+
+        self.THREAT_PROMPT = (
+            "You are a collision risk assessment module for an autonomous surface water drone.\n\n"
+            "Platform and camera context:\n"
+            "- Drone size: approximately 5.0 m long and 2.5 m wide.\n"
+            "- Camera: mounted ~1.1 m above the water surface and ~0.85 m behind the front of the drone.\n"
+            "- Horizontal FOV: approximately 90 degrees.\n"
+            "- The left side of the image corresponds to the left side of the drone.\n\n"
+            "Task:\n"
+            "Assess immediate collision risk based only on the current image.\n"
+            "Do not assume any information from previous frames or external sensors.\n\n"
+            "Rules:\n"
+            "- If any non-duck obstacle is directly ahead and appears within ~2 meters, select \"stop\".\n"
+            "- If a yellow duck is centered and appears within ~2 meters, select \"stop\".\n"
+            "- If no immediate collision risk is observed, select \"move\".\n\n"
+            "Fallback:\n"
+            "If ambiguous, select \"move\".\n"
+        )
+
+        self.DECISION_PROMPT = (
+            "You are a navigation decision module for an autonomous surface water drone.\n\n"
+            "Platform and camera context:\n"
+            "- Drone size: approximately 5.0 m long and 2.5 m wide.\n"
+            "- Camera: mounted ~1.1 m above the water surface and ~0.85 m behind the front of the drone.\n"
+            "- Horizontal FOV: approximately 90 degrees.\n"
+            "- The left side of the image corresponds to the left side of the drone.\n\n"
+            "Task:\n"
+            "Based only on the current image, decide whether to move or stop, choose a movement direction, "
+            "and report yellow-duck presence and approximate position.\n"
+            "Do not assume any information from previous frames or external sensors.\n\n"
+            "Duck reporting:\n"
+            "- If no duck is clearly visible: duck_found=false and duck_position=\"unknown\".\n"
+            "- If a duck is clearly visible: duck_found=true and duck_position must be:\n"
+            "  \"center\" OR \"left-Ndeg\"/\"right-Ndeg\" where N ∈ {5,10,15,20,25,30,35,40,45}.\n"
+            "- Use \"center\" for within ±5 degrees of the image center.\n"
+            "- Use ASCII only (do not use the degree symbol).\n\n"
+            "Decision rules:\n"
+            "- If no yellow duck is clearly visible, choose a direction to search (rotate or move) while avoiding obstacles.\n"
+            "- If a yellow duck is clearly visible and far, choose a direction to approach it while avoiding obstacles.\n"
+            "- If a yellow duck is centered and appears within ~2 meters, select \"stop\".\n\n"
+            "Priority:\n"
+            "Collision avoidance has higher priority than target pursuit.\n\n"
+            "Fallback:\n"
+            "If ambiguous, choose a conservative direction that avoids obvious obstacles.\n"
+        )
+
+        self.PATH_PROMPT = (
+            "You are a short-horizon path planning module for an autonomous surface water drone.\n\n"
+            "Platform and camera context:\n"
+            "- Drone size: approximately 5.0 m long and 2.5 m wide.\n"
+            "- Camera: mounted ~1.1 m above the water surface and ~0.85 m behind the front of the drone.\n"
+            "- Horizontal FOV: approximately 90 degrees.\n"
+            "- The left side of the image corresponds to the left side of the drone.\n\n"
+            "Task:\n"
+            "Based only on the current image, output a short discrete action sequence to approach the yellow duck if visible, "
+            "while avoiding obstacles.\n"
+            "Do not assume any information from previous frames or external sensors.\n\n"
+            "Rules:\n"
+            "- If the duck is visible on the left, include \"a\" actions until it approaches the center.\n"
+            "- If the duck is visible on the right, include \"d\" actions until it approaches the center.\n"
+            "- After the duck is near center, include \"w\" to approach.\n"
+            "- If obstacles block the approach direction, include rotations/maneuvers to steer away before approaching.\n"
+            "- If the duck is centered and appears within ~2 meters, return an empty path.\n\n"
+            "Priority:\n"
+            "Collision avoidance has higher priority than target pursuit.\n\n"
+            "Fallback:\n"
+            "If a safe forward path cannot be determined, rotate to search for a safer direction.\n"
+        )
 
     def thrust_busy_callback(self, msg: Bool):
         self.thrust_is_busy = msg.data
@@ -47,380 +163,286 @@ class GPTImageRobotController(Node):
         self.processing = True
         threading.Thread(target=self.main_process, daemon=True).start()
 
-    # ✅ w/a/s/d 또는 "stop" → /cmd_motor용 문자열로 매핑해서 publish
+
     def publish_motor_command(self, key: str):
-        """
-        key: 'w', 'a', 's', 'd' 또는 'stop'
-        /cmd_motor 에 forward/backward/left/right/stop 문자열을 publish
-        """
         key = key.strip().lower()
-        mapping = {
-            'w': 'forward',
-            's': 'backward',
-            'a': 'left',
-            'd': 'right',
-            'stop': 'stop',
-        }
-        cmd = mapping.get(key, None)
-        if cmd is None:
-            self.get_logger().warn(f"[CMD MAP] Unknown key '{key}', ignoring.")
-            return
+        if key in ("w","a","s","d"):
+            self.get_logger().info(f"[CMD PUB] move_direction <- {key}")
+            self.move_pub.publish(String(data=key))
+        elif key == "stop":
+            self.get_logger().info("[CMD PUB] stop_robot <- stop")
+            self.stop_pub.publish(String(data="stop"))
+        else:
+            self.get_logger().warn(f"[CMD MAP] Unknown key: {key}")
 
-        self.get_logger().info(f"[CMD PUB] /cmd_motor -> {cmd}")
-        self.cmd_motor_pub.publish(String(data=cmd))
-
-    def get_latest_image_path(self):
+    def get_latest_image_path(self) -> Optional[str]:
         """
-        ~/saved_images 안에서 saved_image_숫자.(png|jpg|jpeg) 중
-        가장 번호가 큰 파일을 찾아서 경로 반환
+        Find the latest saved_image_<N>.(png|jpg|jpeg) in ~/saved_images
         """
-        image_dir = os.path.expanduser('~/saved_images')
-        # 🔧 image_saver가 jpg로 저장하므로 확장자들을 모두 허용
-        pattern = re.compile(r'saved_image_(\d+)\.jpg')
+        image_dir = os.path.expanduser("~/saved_images")
+        pattern = re.compile(r"saved_image_(\d+)\.(png|jpg|jpeg)$", re.IGNORECASE)
         try:
-            files = os.listdir(image_dir)
-            numbered_files = []
-            for f in files:
+            candidates = []
+            for f in os.listdir(image_dir):
                 m = pattern.fullmatch(f)
                 if m:
-                    idx = int(m.group(1))
-                    numbered_files.append((idx, f))
-            if not numbered_files:
+                    candidates.append((int(m.group(1)), f))
+            if not candidates:
                 return None
-            latest_file = max(numbered_files)[1]
-            return os.path.join(image_dir, latest_file)
+            latest = max(candidates)[1]
+            return os.path.join(image_dir, latest)
         except Exception as e:
-            self.get_logger().warn(f"[IMAGE] get_latest_image_path error: {e}")
+            self.get_logger().warn(f"[IMAGE] Failed to get latest image: {e}")
             return None
 
-    def image_to_base64(self, image_path):
-        with open(image_path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode('utf-8')
+    def image_to_base64(self, image_path: str) -> str:
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
 
-    def request_threat_assessment_from_image(self, image_data, image_path):
-        prompt = (
-            "You are the navigation system of an autonomous water drone.\n"
-            "The drone is twin-hull (catamaran-style), 2.5m wide, 5m long, and 1.5m high.\n"
-            "The camera is mounted 0.85 meters from the front and 1.1 meters above the water surface.\n\n"
-            "Your task is to decide whether the drone should STOP or continue MOVE, based on obstacles and the yellow duck position (if visible).\n\n"
-            "Follow these rules:\n"
-            "- If any object (e.g., buoy, obstacle **except duck**) is directly in front of the drone and appears within approximately 2 meters, respond with \"stop\".\n"
-            "- If the yellow duck is centered and very close (within ~2 meters), also respond with \"stop\".\n"
-            "- If the path ahead looks clear, even if the duck is not visible, respond with \"move\".\n"
-            "- If you are unsure, prefer \"move\" over \"stop\".\n\n"
-            "Do not be overly cautious. Base your judgment on clear visual threat of collision.\n\n"
-            "Respond ONLY with the following JSON format (no explanations or markdown):\n"
-            "{\n"
-            "  \"decision\": \"move\" or \"stop\"\n"
-            "}"
-        )
+    def _data_url_from_image(self, image_path: str, image_b64: str) -> str:
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext == ".png":
+            mime = "image/png"
+        elif ext in (".jpg", ".jpeg"):
+            mime = "image/jpeg"
+        else:
+            mime = "image/jpeg"
+        return f"data:{mime};base64,{image_b64}"
 
-        self.get_logger().info(f"###############[THREAT CHECK] {image_path}###############")
-
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": "data:image/jpeg;base64," + image_data}},
-                        {"type": "text", "text": (
-                            "Is it safe for the drone to continue moving forward?\n"
-                            "Evaluate based only on this image.\n"
-                        )}
-                    ]
-                }
-            ],
-            max_tokens=50,
-            temperature=0.3,
-            top_p=0.8
-        )
-
-        result_text = response.choices[0].message.content.strip()
-        self.get_logger().info(f"[THREAT CHECK RESPONSE] {result_text}")
+    def _call_parsed(
+        self,
+        *,
+        system_prompt: str,
+        user_text: str,
+        image_path: str,
+        image_b64: str,
+        reasoning_effort: str,
+        max_output_tokens: int,
+        text_format_model,
+        tag: str,
+    ):
+        """
+        Single-attempt structured call via responses.parse (no custom JSON parsing).
+        If the response is incomplete/invalid, this will raise and we return None.
+        """
+        image_url = self._data_url_from_image(image_path, image_b64)
 
         try:
-            if result_text.startswith("```"):
-                result_text = re.sub(r"```(json)?", "", result_text).strip()
-                result_text = re.sub(r"```", "", result_text).strip()
-            result = json.loads(result_text)
-            decision = result.get("decision", "").strip().lower()
-            if decision not in ["move", "stop"]:
-                self.get_logger().warn(
-                    f"[THREAT CHECK] Unexpected decision '{decision}', defaulting to 'stop'"
-                )
-                return "stop"
-            return decision
-        except Exception as e:
-            self.get_logger().warn(f"[THREAT CHECK ERROR] {e}")
-            return "stop"  # fallback for safety
-
-    def request_decision_and_direction_from_image(self, image_data, image_path):
-        self.get_logger().info(
-            f"*****************************{image_path}*****************************"
-        )
-        prompt = (
-            # (프롬프트 원문 그대로 유지)
-            "You are the navigation system of an autonomous water drone.\n"
-            "The drone is twin-hull (catamaran-style), 2.5m wide, 5m long, and 1.5m high.\n"
-            "The camera is mounted 0.85 meters from the front and 1.1 meters above the water surface.\n"
-            "The gray object you see underneath the image is the front of the drone engine. It's not an obstacle.\n"
-            "The engine part is the front of the drone, and the width of the engine is equal to the total lateral length of the drone.\n\n"
-            "Camera has a horizontal field of view (FOV) of 90º and a vertical FOV of 60º."
-            "According to this, it would be left 45º if it was on the left-end and right 45º if it was on the right-end.\n"
-            "The duck_position should describe where the yellow duck appears in the image using approximate angular position from the center.\n"
-            "Use one of the following formats:\n"
-            "   - \"left-30º\", \"left-15º\", \"center\", \"right-10º\", \"right-25º\"\n"
-            "   - If no duck is visible, respond with:\n \"unknown\"\n"
-            "Your task is to decide the next movement direction based on the current image and recent navigation history.\n\n"
-            "Primary rules based on the current image:\n"
-            "1. If there are not obstacles and yellow duck on image, rotate ('a' or 'd') to search the yellow duck.\n"
-            "2. If there are not obstacles but the yellow duck is visible.:\n"
-            "    2.1 - If the yellow duck is far, move forward ('w') to approach it.\n"
-            "    2.2 - If the yellow duck is close, center the yellow duck in the view and stop.\n"
-            "3. If there are obstacles on image and obstacles are far:\n"
-            "    3.1 - If the yellow duck is not visible, move forward or rotate freely to search the yellow duck.\n"
-            "    3.2 - If the yellow duck is visible, move forward in a direction that keeps distance from the obstacles while approaching the yellow duck.\n"
-            "4. If there are obstacles on image and obstacles are close:\n"
-            "    4.1 - If the yellow duck is not visible, rotate away from the nearest obstacle to find the yellow duck.\n"
-            "    4.2 - If the yellow duck is far, move forward only in a direction that turns away from the obstacle.\n"
-            "    4.3 - If the yellow duck is close, first adjust the drone to keep away from the obstacle, then rotate or move to center the yellow duck.\n"
-            "5. If the yellow duck is centered and its distance is within 2 meters, stop.\n"
-            "6. If you find a yellow duck, respond duck_found as true, otherwise false.\n\n"
-            "Note: If \"duck_position\" is \"unknown\", then \"duck_found\" must be false.\n"
-            "Respond strictly in the following JSON format:\n"
-            "Do not include any explanations, markdown formatting, or code block markers like ```json. "
-            "Output only the raw JSON object."
-            "{\n"
-            "  \"decision\": \"move\" or \"stop\",\n"
-            "  \"direction\": \"w\" or \"a\" or \"s\" or \"d\"\n"
-            "  \"duck_found\": true or false\n"
-            "  \"duck_position\": a string such as \"unknown\" or \"left-20º\" or \"right-10º\" or \"center\" \n"
-            "}"
-        )
-
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": "data:image/jpeg;base64," + image_data}},
-                        {"type": "text", "text": (
-                            "I want to get to the yellow duck if it exists, while avoiding obstacles.\n"
-                            "Only identify a yellow duck if it is clearly present in the image.\n"
-                            "Do not assume a yellow duck is always there. "
-                            "Use image contents to determine presence.\n"
-                            "Place the yellow duck at the center-bottom of the image **only if found**.\n"
-                        )}
-                    ]
-                }
-            ],
-            max_tokens=100,
-            temperature=0.7,
-            top_p=0.5
-        )
-        result_text = response.choices[0].message.content.strip()
-        self.get_logger().info(f"GPT response: {result_text}")
-        try:
-            if result_text.startswith("```"):
-                result_text = re.sub(r"```(json)?", "", result_text).strip()
-                result_text = re.sub(r"```", "", result_text).strip()
-            result = json.loads(result_text)
-            return (
-                result.get("decision", ""),
-                result.get("direction", ""),
-                result.get("duck_found", False),
-                result.get("duck_position", "unknown"),
+            resp = self.client.responses.parse(
+                model=self.model_name,
+                input=[
+                    {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_image", "image_url": image_url},
+                            {"type": "input_text", "text": user_text},
+                        ],
+                    },
+                ],
+                reasoning={"effort": reasoning_effort},
+                # ✅ A: output token budget up (reduce truncation risk)
+                max_output_tokens=max_output_tokens,
+                # ✅ D: Pydantic-based parsing/validation
+                text_format=text_format_model,
             )
+
+            parsed = resp.output_parsed
+            if parsed is None:
+                self.get_logger().warn(f"[LLM PARSE][{tag}] output_parsed is None.")
+                return None
+
+            # Log parsed object in a stable way
+            try:
+                self.get_logger().info(f"[LLM PARSED][{tag}] {parsed.model_dump_json()}")
+            except Exception:
+                self.get_logger().info(f"[LLM PARSED][{tag}] {parsed}")
+
+            return parsed
+
         except Exception as e:
-            self.get_logger().warn(f"[DECISION PARSE ERROR] {e}")
+            self.get_logger().error(f"[LLM ERROR][{tag}] {e}")
+            return None
+
+    # -----------------------------
+    # Threat check (PATH MODE only)
+    # -----------------------------
+    def threat_check(self, image_path: str, image_b64: str) -> str:
+        self.get_logger().info(f"[THREAT CHECK] Image: {image_path}")
+
+        parsed: Optional[ThreatOut] = self._call_parsed(
+            system_prompt=self.THREAT_PROMPT,
+            user_text="Assess immediate collision risk based only on this image and return a single decision.",
+            image_path=image_path,
+            image_b64=image_b64,
+            reasoning_effort="low",
+            max_output_tokens=120,
+            text_format_model=ThreatOut,
+            tag="threat_check",
+        )
+
+        if parsed is None:
+            self.get_logger().warn("[THREAT CHECK] No valid parsed output. Defaulting to STOP.")
+            return "stop"
+
+        return parsed.decision
+
+    # -----------------------------
+    # Decision (NORMAL MODE first)
+    # -----------------------------
+    def nav_decision(self, image_path: str, image_b64: str) -> Tuple[Optional[str], Optional[str], bool, str]:
+        self.get_logger().info(f"[DECISION] Image: {image_path}")
+
+        parsed: Optional[NavOut] = self._call_parsed(
+            system_prompt=self.DECISION_PROMPT,
+            user_text=(
+                "Choose the next navigation action to reach the yellow duck if present, while prioritizing collision avoidance. "
+                "If no duck is clearly visible, choose a direction to search."
+            ),
+            image_path=image_path,
+            image_b64=image_b64,
+            reasoning_effort="low",
+            max_output_tokens=256,  # ✅ A: increased
+            text_format_model=NavOut,
+            tag="nav_decision",
+        )
+
+        if parsed is None:
             return None, None, False, "unknown"
 
-    def request_path_plan_from_image(self, image_data, image_path):
-        self.get_logger().info(f"[PATH PLAN] From {image_path}")
-        prompt = (
-            # (프롬프트 원문 유지)
-            "You are the navigation system of an autonomous water drone.\n"
-            "The drone is twin-hull (catamaran-style), 2.5m wide, 5m long, and 1.5m high.\n"
-            "The camera is mounted 0.85 meters from the front and 1.1 meters above the water surface.\n"
-            "The gray object you see underneath the image is the front of the drone engine. It's not an obstacle.\n"
-            "The engine part is the front of the drone, and the width of the engine is equal to the total lateral length of the drone.\n\n"
-            "Camera has a horizontal field of view (FOV) of 90º and a vertical FOV of 60º. According to this, it would be left 45º if it was on the left-end and right 45º if it was on the right-end.\n"
-            "All directional decisions (left/right) must be made based strictly on the image coordinates:\n"
-            "- The left side of the image is 'left'.\n"
-            "- The right side of the image is 'right'.\n"
-            "Your task is to decide the next movement direction based on image\n"
-            "Use the following rules:\n"
-            "1. If there are no obstacles and the yellow duck is visible:\n"
-            "    - If the yellow duck is on the right, rotate right ('d') until it is near the center, then move forward ('w').\n"
-            "    - If the yellow duck is on the left, rotate left ('a') until it is near the center, then move forward ('w').\n"
-            "    - Do not rotate in the opposite direction of the duck's position.\n"
-            "2. If obstacles exist and are far:\n"
-            "    - Prioritize approaching the duck while maintaining a safe path.\n"
-            "3. If obstacles are close:\n"
-            "    - Avoid obstacles using the opposite direction, then continue toward the duck.\n"
-            "4. If the yellow duck is centered and within 2 meters, stop.\n\n"
-            "Respond strictly in the following JSON format:\n"
-            "Do not include any explanations, markdown formatting, or code block markers like ```json. "
-            "Output only the raw JSON object."
-            "{ \"path\": [\"a\", \"w\", \"w\"] }"
+        decision = parsed.decision
+        direction = parsed.direction
+        duck_found = bool(parsed.duck_found)
+        duck_position = str(parsed.duck_position)
+
+        # Enforce logical consistency (post-processing)
+        if duck_found is False:
+            duck_position = "unknown"
+        else:
+            if duck_position == "unknown":
+                duck_found = False
+
+        return decision, direction, duck_found, duck_position
+
+    # -----------------------------
+    # Path planning (short horizon)
+    # -----------------------------
+    def plan_path_actions(self, image_path: str, image_b64: str) -> List[str]:
+        self.get_logger().info(f"[PATH PLAN] Image: {image_path}")
+
+        parsed: Optional[PathOut] = self._call_parsed(
+            system_prompt=self.PATH_PROMPT,
+            user_text=(
+                "Generate a short discrete action sequence to approach the yellow duck if visible, while avoiding obstacles. "
+                "Return an empty path if the duck is centered and very close."
+            ),
+            image_path=image_path,
+            image_b64=image_b64,
+            reasoning_effort="medium",
+            max_output_tokens=256,  # ✅ A: increased
+            text_format_model=PathOut,
+            tag="path_plan",
         )
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": "data:image/jpeg;base64," + image_data}},
-                        {"type": "text", "text": (
-                            "Make the decision for the drone to reach the yellow duck. Yellow duck is not an obstacle, so don't avoid it."
-                            "Use image contents to determine presence.\n"
-                            "Place the yellow duck at the center-bottom of the image\n"
-                            "The rotation of direction doesn't necessarily have to be one. There's no problem with multiple times.\n"
-                            "And it's also possible to move back through s.\n"
-                        )}
-                    ]
-                }
-            ],
-            max_tokens=40,
-            temperature=0.5,
-            top_p=0.8
-        )
-        result_text = response.choices[0].message.content.strip()
-        self.get_logger().info(f"[PATH PLAN RESPONSE]: {result_text}")
-        try:
-            if result_text.startswith("```"):
-                result_text = re.sub(r"```(json)?", "", result_text).strip()
-                result_text = re.sub(r"```", "", result_text).strip()
-            result = json.loads(result_text)
-            return result.get("path", [])
-        except Exception as e:
-            self.get_logger().error(f"[PATH PLAN ERROR] {e}")
+
+        if parsed is None:
             return []
+
+        return [str(a) for a in parsed.path]
 
     def main_process(self):
         try:
-            # 1) 최신 이미지 찾기
             image_path = self.get_latest_image_path()
             if not image_path or not os.path.exists(image_path):
                 self.get_logger().warn("[IMAGE] No image found in ~/saved_images.")
-                self.processing = False
                 return
 
-            # 👉 여기서 어떤 이미지를 썼는지 로그 남김
             self.get_logger().info(f"[IMAGE] Using latest image: {image_path}")
-
-            image_data = self.image_to_base64(image_path)
+            image_b64 = self.image_to_base64(image_path)
 
             # =====================
             # PATH MODE
             # =====================
             if self.in_path_mode:
-                if self.current_step >= len(self.path_plan):
-                    self.get_logger().info(
-                        "[PATH MODE] Path complete. Returning to normal mode."
-                    )
+                if self.current_step >= len(self.path_actions):
+                    self.get_logger().info("[PATH MODE] Completed. Returning to normal mode.")
                     self.in_path_mode = False
-                    self.path_plan = []
+                    self.path_actions = []
                     self.current_step = 0
                     return
 
-                # 최신 이미지 다시 확인 (경로 수행 중이라도 최신 상황 반영)
-                image_path = self.get_latest_image_path()
-                if not image_path or not os.path.exists(image_path):
-                    self.get_logger().warn(
-                        "[WARNING] No new image found during path execution."
-                    )
+                # 최신 이미지 다시 반영
+                image_path2 = self.get_latest_image_path()
+                if not image_path2 or not os.path.exists(image_path2):
+                    self.get_logger().warn("[PATH MODE] No image available. Stopping and aborting path mode.")
                     self.in_path_mode = False
-                    self.path_plan = []
+                    self.path_actions = []
                     self.current_step = 0
+                    self.publish_motor_command("stop")
                     return
 
-                self.get_logger().info(f"[IMAGE][PATH MODE] Using latest image: {image_path}")
-                image_data = self.image_to_base64(image_path)
-                
-                # 위협 체크
-                decision = self.request_threat_assessment_from_image(image_data, image_path)
+                image_b64_2 = self.image_to_base64(image_path2)
 
-                if decision == "stop":
-                    self.get_logger().warn(
-                        "[THREAT] GPT advised stop during path plan."
-                    )
+                # Threat gate before executing each step (original flow)
+                gate = self.threat_check(image_path2, image_b64_2)
+                if gate == "stop":
+                    self.get_logger().warn("[PATH MODE] Threat gate STOP. Aborting path mode.")
                     self.in_path_mode = False
-                    self.path_plan = []
+                    self.path_actions = []
                     self.current_step = 0
-                    # 모터도 실제로 stop
-                    self.publish_motor_command('stop')
+                    self.publish_motor_command("stop")
                     return
 
-                # path step 실행
-                direction_raw = self.path_plan[self.current_step]
-                direction = str(direction_raw).strip().replace("'", "").replace('"', "")
-
-                if direction in ['w', 'a', 's', 'd']:
-                    self.get_logger().info(
-                        f"[PATH MODE] Executing step {self.current_step + 1}: {direction}"
-                    )
-                    self.publish_motor_command(direction)
-                    self.current_step += 1
-                else:
-                    self.get_logger().warn(
-                        f"[PATH MODE] Invalid direction '{direction_raw}' at step {self.current_step}. Skipping."
-                    )
-                    self.current_step += 1
-
+                cmd = self.path_actions[self.current_step]
+                self.get_logger().info(f"[PATH MODE] Step {self.current_step + 1}/{len(self.path_actions)}: {cmd}")
+                self.publish_motor_command(cmd)
+                self.current_step += 1
                 return
 
             # =====================
-            # NORMAL MODE
+            # NORMAL MODE (Decision first)
             # =====================
-            decision, direction, duck_found, duck_position = \
-                self.request_decision_and_direction_from_image(image_data, image_path)
-            
+            decision, direction, duck_found, duck_position = self.nav_decision(image_path, image_b64)
+            self.get_logger().info(
+                f"[STATE] decision={decision}, direction={direction}, duck_found={duck_found}, duck_position={duck_position}"
+            )
+
             if duck_found:
-                self.get_logger().info(
-                    f"[INFO] Duck detected at {duck_position} → switching to path planning."
-                )
-                self.in_path_mode = True
-                
-                image_path = self.get_latest_image_path()
-                if not image_path or not os.path.exists(image_path):
-                    self.get_logger().warn(
-                        "[PATH MODE] No image available when starting path plan."
-                    )
+                self.get_logger().info("[NORMAL MODE] Duck found. Switching to PATH MODE.")
+
+                image_path2 = self.get_latest_image_path()
+                if not image_path2 or not os.path.exists(image_path2):
+                    self.get_logger().warn("[PATH MODE] No image available at path start. Aborting.")
+                    return
+
+                image_b64_2 = self.image_to_base64(image_path2)
+                self.path_actions = self.plan_path_actions(image_path2, image_b64_2)
+                self.current_step = 0
+
+                if not self.path_actions:
+                    self.get_logger().info("[PATH MODE] Empty path. Stopping and returning to normal mode.")
+                    self.publish_motor_command("stop")
                     self.in_path_mode = False
                     return
 
-                self.get_logger().info(f"[IMAGE][PATH START] Using latest image: {image_path}")
-                image_data = self.image_to_base64(image_path)
-                
-                self.path_plan = self.request_path_plan_from_image(image_data, image_path)
-                self.current_step = 0
-           
-                if self.path_plan and self.path_plan[0] != "stop":
-                    first = str(self.path_plan[0]).strip().replace("'", "").replace('"', "")
-                    self.publish_motor_command(first)
-                    self.get_logger().info(
-                        f"[PATH MODE] Immediately executing step 1: {first}"
-                    )
-                    self.current_step += 1
+                self.in_path_mode = True
+
+                first = self.path_actions[0]
+                self.get_logger().info(f"[PATH MODE] Immediate step 1/{len(self.path_actions)}: {first}")
+                self.publish_motor_command(first)
+                self.current_step = 1
                 return
 
-            # 🔁 일반 모드: move/stop 결정
+            # duck_found == False -> keep searching in normal mode
             if decision == "stop":
-                self.publish_motor_command('stop')
-            elif decision == "move" and direction in ['w', 'a', 's', 'd']:
+                self.publish_motor_command("stop")
+            elif decision == "move" and direction in ("w", "a", "s", "d"):
                 self.publish_motor_command(direction)
+            else:
+                self.get_logger().warn("[NORMAL MODE] Invalid decision output. Defaulting to STOP.")
+                self.publish_motor_command("stop")
 
         except Exception as e:
-            self.get_logger().error(f"[ERROR] {e}")
+            self.get_logger().error(f"[ERROR] Unhandled exception: {e}")
         finally:
             self.processing = False
 
@@ -434,12 +456,11 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        # 이미 shutdown 된 상태일 수 있으니 방어적으로 처리
         try:
             rclpy.shutdown()
         except Exception:
             pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
