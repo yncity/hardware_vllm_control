@@ -3,7 +3,8 @@ import time
 import pigpio
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
+
 
 # GPIO 번호 (BCM)
 LEFT_GPIO = 13   # 좌측 모터
@@ -32,6 +33,11 @@ class MotorPwmNode(Node):
         self.set_both_pwm(PULSE_STOP_US)
         time.sleep(1.0)  # ESC에 맞게 필요하면 늘려도 됨
 
+        # busy 상태 publish (모터 동작 중이면 True)
+        self.busy_pub = self.create_publisher(Bool, '/thrust_busy', 10)
+        self.is_busy = False
+        self.publish_busy(False)  # 초기값
+
         # /cmd_motor 토픽 구독
         self.sub = self.create_subscription(
             String,
@@ -55,6 +61,11 @@ class MotorPwmNode(Node):
         pulse_us = max(500, min(2500, pulse_us))
         self.pi.set_servo_pulsewidth(gpio, pulse_us)
 
+    def publish_busy(self, state: bool):
+        self.is_busy = state
+        self.busy_pub.publish(Bool(data=state))
+
+
     def set_both_pwm(self, pulse_us: int):
         self.set_pwm(LEFT_GPIO, pulse_us)
         self.set_pwm(RIGHT_GPIO, pulse_us)
@@ -69,6 +80,9 @@ class MotorPwmNode(Node):
         # 즉시 해당 명령 적용
         self.set_pwm(LEFT_GPIO, left_pulse_us)
         self.set_pwm(RIGHT_GPIO, right_pulse_us)
+
+        # 모터 동작 시작 → busy True
+        self.publish_busy(True)
 
         # 기존에 대기 중이던 자동 정지 타이머가 있으면 취소
         if self.stop_timer is not None:
@@ -88,13 +102,21 @@ class MotorPwmNode(Node):
         if self.stop_timer is not None:
             self.stop_timer.cancel()
             self.stop_timer = None
-
         self.get_logger().info(f"{MOTION_DURATION_SEC}초 경과: 자동 정지 (좌/우 1500µs)")
         self.set_both_pwm(PULSE_STOP_US)
 
+        # 동작 종료 → busy False
+        self.publish_busy(False)
+
+
     def cmd_callback(self, msg: String):
         cmd = msg.data.strip().lower()
-
+        
+        # 모터 동작 중이면 새 명령 무시 (단, stop은 즉시 허용)
+        if self.is_busy and cmd != 'stop':
+            self.get_logger().warn(f"BUSY: '{cmd}' 명령 무시 (동작 중)")
+            return
+        
         if cmd == 'forward':
             # 전진: 양쪽 1000µs
             self.start_motion_with_auto_stop("FORWARD", PULSE_FORWARD_US, PULSE_FORWARD_US)
@@ -112,12 +134,13 @@ class MotorPwmNode(Node):
             self.start_motion_with_auto_stop("RIGHT", PULSE_FORWARD_US, PULSE_BACK_US)
 
         elif cmd == 'stop':
-            # STOP 명령이 오면 즉시 정지 + 타이머 취소
             self.get_logger().info("명령: STOP (즉시 정지, 좌/우 1500µs)")
             if self.stop_timer is not None:
                 self.stop_timer.cancel()
                 self.stop_timer = None
             self.set_both_pwm(PULSE_STOP_US)
+            self.publish_busy(False)
+
 
         else:
             self.get_logger().warn(
@@ -126,13 +149,16 @@ class MotorPwmNode(Node):
             )
 
     def cleanup(self):
-        # 정지 신호 보내고 PWM 끄기
         self.get_logger().info("노드 종료: 모터 정지 및 pigpio 해제.")
         try:
+            # 먼저 busy 해제 공지 (가장 먼저/확실히)
+            self.publish_busy(False)
+
             # 정지 신호
             self.set_both_pwm(PULSE_STOP_US)
             time.sleep(0.5)
-            # PWM off (0을 주면 PWM 출력 종료)
+
+            # PWM off
             self.pi.set_servo_pulsewidth(LEFT_GPIO, 0)
             self.pi.set_servo_pulsewidth(RIGHT_GPIO, 0)
         except Exception as e:

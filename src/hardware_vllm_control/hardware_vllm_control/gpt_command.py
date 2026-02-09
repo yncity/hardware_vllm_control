@@ -51,9 +51,10 @@ class GPTImageRobotController(Node):
         # OpenAI API key
         api_key = os.getenv("GPT_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            self.get_logger().error(
-                "OpenAI API key not found. Please set GPT_API_KEY (or OPENAI_API_KEY)."
-            )
+            self.get_logger().error("OpenAI API key not found. Please set GPT_API_KEY (or OPENAI_API_KEY).")
+            # 이후 호출이 계속 실패하므로 타이머를 만들지 않도록 중단
+            raise RuntimeError("Missing OpenAI API key")
+
 
         # OpenAI client
         self.client = OpenAI(api_key=api_key)
@@ -65,7 +66,7 @@ class GPTImageRobotController(Node):
 
         # Optional busy signal from thrust controller
         self.thrust_busy_sub = self.create_subscription(
-            Bool, "thrust_busy", self.thrust_busy_callback, 10
+            Bool, "/thrust_busy", self.thrust_busy_callback, 10
         )
 
         # Path mode state
@@ -169,11 +170,14 @@ class GPTImageRobotController(Node):
         self.thrust_is_busy = msg.data
 
     def timer_callback(self):
-        # 이미 처리 중이거나, 모터 쪽에서 busy라고 알려주면 스킵
-        if self.processing or self.thrust_is_busy:
+        if self.processing:
+            return
+        if self.thrust_is_busy:
+            self.get_logger().debug("[BUSY] thrust_busy=True -> skip GPT cycle")
             return
         self.processing = True
         threading.Thread(target=self.main_process, daemon=True).start()
+
 
 
     def publish_motor_command(self, key: str):
@@ -372,6 +376,9 @@ class GPTImageRobotController(Node):
         return [str(a) for a in parsed.path]
 
     def main_process(self):
+        # 레이스 방지: 스레드 시작 직후에도 busy면 즉시 중단
+        if self.thrust_is_busy:
+            return
         try:
             image_path = self.get_latest_image_path()
             if not image_path or not os.path.exists(image_path):
