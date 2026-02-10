@@ -16,6 +16,7 @@
   <exec_depend>pigpio</exec_depend>
   <exec_depend>openai</exec_depend>
   <exec_depend>pydantic</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
 
   <!-- Tests (optional) -->
   <test_depend>ament_copyright</test_depend>
