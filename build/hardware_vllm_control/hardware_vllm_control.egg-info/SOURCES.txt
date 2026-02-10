@@ -14,4 +14,5 @@ hardware_vllm_control/gpt_command.py
 hardware_vllm_control/image_saver.py
 hardware_vllm_control/manual_control.py
 hardware_vllm_control/thrust_control.py
+launch/hardware_vllm_control.launch.py
 resource/hardware_vllm_control
