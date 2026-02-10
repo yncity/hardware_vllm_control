@@ -1,0 +1,48 @@
+running egg_info
+creating ../../build/hardware_vllm_control/hardware_vllm_control.egg-info
+writing ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/PKG-INFO
+writing dependency_links to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/dependency_links.txt
+writing entry points to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/entry_points.txt
+writing requirements to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/requires.txt
+writing top-level names to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/top_level.txt
+writing manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'
+reading manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/ioes/vllm_control_ws/build/hardware_vllm_control/build
+creating /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib
+creating /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control
+copying hardware_vllm_control/image_saver.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control
+copying hardware_vllm_control/__init__.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control
+copying hardware_vllm_control/manual_control.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control
+copying hardware_vllm_control/gpt_command.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control
+copying hardware_vllm_control/thrust_control.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control
+running install
+running install_lib
+creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control
+copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/image_saver.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control
+copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/__init__.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control
+copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/manual_control.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control
+copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/gpt_command.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control
+copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/thrust_control.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control
+byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/image_saver.py to image_saver.cpython-312.pyc
+byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/manual_control.py to manual_control.cpython-312.pyc
+byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/gpt_command.py to gpt_command.cpython-312.pyc
+byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/thrust_control.py to thrust_control.cpython-312.pyc
+running install_data
+creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index
+creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index/resource_index
+creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index/resource_index/packages
+copying resource/hardware_vllm_control -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index/resource_index/packages
+copying package.xml -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/hardware_vllm_control
+running install_egg_info
+Copying ../../build/hardware_vllm_control/hardware_vllm_control.egg-info to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control-0.0.0-py3.12.egg-info
+running install_scripts
+Installing gpt_command script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+Installing image_saver script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+Installing manual_control script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+Installing thrust_control script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+writing list of installed files to '/home/ioes/vllm_control_ws/build/hardware_vllm_control/install.log'

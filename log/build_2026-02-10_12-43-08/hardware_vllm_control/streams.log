@@ -1,0 +1,25 @@
+[3.608s] Invoking command in '/home/ioes/vllm_control_ws/src/hardware_vllm_control': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/ioes/vllm_control_ws/build/hardware_vllm_control/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/hardware_vllm_control build --build-base /home/ioes/vllm_control_ws/build/hardware_vllm_control/build install --record /home/ioes/vllm_control_ws/build/hardware_vllm_control/install.log --single-version-externally-managed install_data
+[4.757s] running egg_info
+[4.840s] writing ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/PKG-INFO
+[4.841s] writing dependency_links to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/dependency_links.txt
+[4.842s] writing entry points to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/entry_points.txt
+[4.843s] writing requirements to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/requires.txt
+[4.844s] writing top-level names to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/top_level.txt
+[5.014s] reading manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'
+[5.016s] adding license file 'LICENSE'
+[5.018s] writing manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'
+[5.019s] running build
+[5.019s] running build_py
+[5.021s] running install
+[5.045s] running install_lib
+[5.134s] running install_data
+[5.134s] running install_egg_info
+[5.223s] removing '/home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control-0.0.0-py3.12.egg-info' (and everything under it)
+[5.225s] Copying ../../build/hardware_vllm_control/hardware_vllm_control.egg-info to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control-0.0.0-py3.12.egg-info
+[5.230s] running install_scripts
+[5.864s] Installing gpt_command script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+[5.865s] Installing image_saver script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+[5.866s] Installing manual_control script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+[5.868s] Installing thrust_control script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control
+[5.870s] writing list of installed files to '/home/ioes/vllm_control_ws/build/hardware_vllm_control/install.log'
+[6.018s] Invoked command in '/home/ioes/vllm_control_ws/src/hardware_vllm_control' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/ioes/vllm_control_ws/build/hardware_vllm_control/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/hardware_vllm_control build --build-base /home/ioes/vllm_control_ws/build/hardware_vllm_control/build install --record /home/ioes/vllm_control_ws/build/hardware_vllm_control/install.log --single-version-externally-managed install_data

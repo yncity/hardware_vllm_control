@@ -1,0 +1,123 @@
+[0.000000] (-) TimerEvent: {}
+[0.001550] (hardware_vllm_control) JobQueued: {'identifier': 'hardware_vllm_control', 'dependencies': OrderedDict()}
+[0.001698] (hardware_vllm_control) JobStarted: {'identifier': 'hardware_vllm_control'}
+[0.099243] (-) TimerEvent: {}
+[0.199848] (-) TimerEvent: {}
+[0.300413] (-) TimerEvent: {}
+[0.401022] (-) TimerEvent: {}
+[0.501560] (-) TimerEvent: {}
+[0.602172] (-) TimerEvent: {}
+[0.702735] (-) TimerEvent: {}
+[0.803244] (-) TimerEvent: {}
+[0.903885] (-) TimerEvent: {}
+[1.004718] (-) TimerEvent: {}
+[1.105458] (-) TimerEvent: {}
+[1.206177] (-) TimerEvent: {}
+[1.307072] (-) TimerEvent: {}
+[1.407646] (-) TimerEvent: {}
+[1.508150] (-) TimerEvent: {}
+[1.608673] (-) TimerEvent: {}
+[1.709189] (-) TimerEvent: {}
+[1.809706] (-) TimerEvent: {}
+[1.910283] (-) TimerEvent: {}
+[2.010969] (-) TimerEvent: {}
+[2.111682] (-) TimerEvent: {}
+[2.212311] (-) TimerEvent: {}
+[2.313023] (-) TimerEvent: {}
+[2.413702] (-) TimerEvent: {}
+[2.514405] (-) TimerEvent: {}
+[2.615052] (-) TimerEvent: {}
+[2.715676] (-) TimerEvent: {}
+[2.816226] (-) TimerEvent: {}
+[2.916855] (-) TimerEvent: {}
+[3.017374] (-) TimerEvent: {}
+[3.117972] (-) TimerEvent: {}
+[3.218724] (-) TimerEvent: {}
+[3.319335] (-) TimerEvent: {}
+[3.419979] (-) TimerEvent: {}
+[3.520502] (-) TimerEvent: {}
+[3.621062] (-) TimerEvent: {}
+[3.721585] (-) TimerEvent: {}
+[3.822152] (-) TimerEvent: {}
+[3.922702] (-) TimerEvent: {}
+[4.023205] (-) TimerEvent: {}
+[4.123835] (-) TimerEvent: {}
+[4.224431] (-) TimerEvent: {}
+[4.325317] (-) TimerEvent: {}
+[4.344222] (hardware_vllm_control) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/hardware_vllm_control', 'build', '--build-base', '/home/ioes/vllm_control_ws/build/hardware_vllm_control/build', 'install', '--record', '/home/ioes/vllm_control_ws/build/hardware_vllm_control/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/home/ioes/vllm_control_ws/src/hardware_vllm_control', 'env': {'LESSOPEN': '| /usr/bin/lesspipe %s', 'USER': 'ioes', 'SSH_CLIENT': '172.20.10.9 51555 22', 'XDG_SESSION_TYPE': 'tty', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/jazzy/opt/rviz_ogre_vendor/lib:/opt/ros/jazzy/lib/aarch64-linux-gnu:/opt/ros/jazzy/opt/gz_math_vendor/lib:/opt/ros/jazzy/opt/gz_utils_vendor/lib:/opt/ros/jazzy/opt/gz_cmake_vendor/lib:/opt/ros/jazzy/lib', 'HOME': '/home/ioes', 'OLDPWD': '/home/ioes/vllm_control_ws/src', 'SSH_TTY': '/dev/pts/0', 'ROS_PYTHON_VERSION': '3', 'LC_CTYPE': 'C.UTF-8', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/1000/bus', 'DEBUGINFOD_URLS': 'https://debuginfod.ubuntu.com', 'ROS_DISTRO': 'jazzy', 'LOGNAME': 'ioes', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'XDG_SESSION_CLASS': 'user', 'TERM': 'xterm-256color', 'XDG_SESSION_ID': '3', 'PATH': '/home/ioes/.local/bin:/opt/ros/jazzy/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin', 'XDG_RUNTIME_DIR': '/run/user/1000', 'LANG': 'C.UTF-8', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.crdownload=00;90:*.dpkg-dist=00;90:*.dpkg-new=00;90:*.dpkg-old=00;90:*.dpkg-tmp=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:*.swp=00;90:*.tmp=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:', 'AMENT_PREFIX_PATH': '/opt/ros/jazzy', 'SHELL': '/bin/bash', 'LESSCLOSE': '/usr/bin/lesspipe %s %s', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'SUBNET', 'PWD': '/home/ioes/vllm_control_ws/build/hardware_vllm_control', 'SSH_CONNECTION': '172.20.10.9 51555 172.20.10.12 22', 'XDG_DATA_DIRS': '/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop', 'PYTHONPATH': '/home/ioes/vllm_control_ws/build/hardware_vllm_control/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages:/opt/ros/jazzy/lib/python3.12/site-packages', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/opt/ros/jazzy/opt/gz_math_vendor:/opt/ros/jazzy/opt/gz_utils_vendor:/opt/ros/jazzy/opt/gz_cmake_vendor'}, 'shell': False}
+[4.425449] (-) TimerEvent: {}
+[4.526006] (-) TimerEvent: {}
+[4.626546] (-) TimerEvent: {}
+[4.727149] (-) TimerEvent: {}
+[4.827705] (-) TimerEvent: {}
+[4.928258] (-) TimerEvent: {}
+[5.028909] (-) TimerEvent: {}
+[5.129432] (-) TimerEvent: {}
+[5.229993] (-) TimerEvent: {}
+[5.330510] (-) TimerEvent: {}
+[5.431088] (-) TimerEvent: {}
+[5.522876] (hardware_vllm_control) StdoutLine: {'line': b'running egg_info\n'}
+[5.524197] (hardware_vllm_control) StdoutLine: {'line': b'creating ../../build/hardware_vllm_control/hardware_vllm_control.egg-info\n'}
+[5.531205] (-) TimerEvent: {}
+[5.608145] (hardware_vllm_control) StdoutLine: {'line': b'writing ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/PKG-INFO\n'}
+[5.609360] (hardware_vllm_control) StdoutLine: {'line': b'writing dependency_links to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/dependency_links.txt\n'}
+[5.610209] (hardware_vllm_control) StdoutLine: {'line': b'writing entry points to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/entry_points.txt\n'}
+[5.610887] (hardware_vllm_control) StdoutLine: {'line': b'writing requirements to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/requires.txt\n'}
+[5.611393] (hardware_vllm_control) StdoutLine: {'line': b'writing top-level names to ../../build/hardware_vllm_control/hardware_vllm_control.egg-info/top_level.txt\n'}
+[5.612020] (hardware_vllm_control) StdoutLine: {'line': b"writing manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'\n"}
+[5.631333] (-) TimerEvent: {}
+[5.731878] (-) TimerEvent: {}
+[5.785573] (hardware_vllm_control) StdoutLine: {'line': b"reading manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'\n"}
+[5.786723] (hardware_vllm_control) StdoutLine: {'line': b"adding license file 'LICENSE'\n"}
+[5.788814] (hardware_vllm_control) StdoutLine: {'line': b"writing manifest file '../../build/hardware_vllm_control/hardware_vllm_control.egg-info/SOURCES.txt'\n"}
+[5.789473] (hardware_vllm_control) StdoutLine: {'line': b'running build\n'}
+[5.790064] (hardware_vllm_control) StdoutLine: {'line': b'running build_py\n'}
+[5.790535] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/build/hardware_vllm_control/build\n'}
+[5.791133] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib\n'}
+[5.791677] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control\n'}
+[5.792325] (hardware_vllm_control) StdoutLine: {'line': b'copying hardware_vllm_control/image_saver.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control\n'}
+[5.792859] (hardware_vllm_control) StdoutLine: {'line': b'copying hardware_vllm_control/__init__.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control\n'}
+[5.793620] (hardware_vllm_control) StdoutLine: {'line': b'copying hardware_vllm_control/manual_control.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control\n'}
+[5.794427] (hardware_vllm_control) StdoutLine: {'line': b'copying hardware_vllm_control/gpt_command.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control\n'}
+[5.795356] (hardware_vllm_control) StdoutLine: {'line': b'copying hardware_vllm_control/thrust_control.py -> /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control\n'}
+[5.796684] (hardware_vllm_control) StdoutLine: {'line': b'running install\n'}
+[5.820095] (hardware_vllm_control) StdoutLine: {'line': b'running install_lib\n'}
+[5.832005] (-) TimerEvent: {}
+[5.907075] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control\n'}
+[5.907704] (hardware_vllm_control) StdoutLine: {'line': b'copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/image_saver.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control\n'}
+[5.908644] (hardware_vllm_control) StdoutLine: {'line': b'copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/__init__.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control\n'}
+[5.909412] (hardware_vllm_control) StdoutLine: {'line': b'copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/manual_control.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control\n'}
+[5.910277] (hardware_vllm_control) StdoutLine: {'line': b'copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/gpt_command.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control\n'}
+[5.911321] (hardware_vllm_control) StdoutLine: {'line': b'copying /home/ioes/vllm_control_ws/build/hardware_vllm_control/build/lib/hardware_vllm_control/thrust_control.py -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control\n'}
+[5.913823] (hardware_vllm_control) StdoutLine: {'line': b'byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/image_saver.py to image_saver.cpython-312.pyc\n'}
+[5.918300] (hardware_vllm_control) StdoutLine: {'line': b'byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/__init__.py to __init__.cpython-312.pyc\n'}
+[5.919672] (hardware_vllm_control) StdoutLine: {'line': b'byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/manual_control.py to manual_control.cpython-312.pyc\n'}
+[5.923245] (hardware_vllm_control) StdoutLine: {'line': b'byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/gpt_command.py to gpt_command.cpython-312.pyc\n'}
+[5.932185] (-) TimerEvent: {}
+[5.935133] (hardware_vllm_control) StdoutLine: {'line': b'byte-compiling /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control/thrust_control.py to thrust_control.cpython-312.pyc\n'}
+[5.939761] (hardware_vllm_control) StdoutLine: {'line': b'running install_data\n'}
+[5.940427] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index\n'}
+[5.941014] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index/resource_index\n'}
+[5.941557] (hardware_vllm_control) StdoutLine: {'line': b'creating /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index/resource_index/packages\n'}
+[5.942009] (hardware_vllm_control) StdoutLine: {'line': b'copying resource/hardware_vllm_control -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/ament_index/resource_index/packages\n'}
+[5.942501] (hardware_vllm_control) StdoutLine: {'line': b'copying package.xml -> /home/ioes/vllm_control_ws/install/hardware_vllm_control/share/hardware_vllm_control\n'}
+[5.943198] (hardware_vllm_control) StdoutLine: {'line': b'running install_egg_info\n'}
+[6.032335] (-) TimerEvent: {}
+[6.033268] (hardware_vllm_control) StdoutLine: {'line': b'Copying ../../build/hardware_vllm_control/hardware_vllm_control.egg-info to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/python3.12/site-packages/hardware_vllm_control-0.0.0-py3.12.egg-info\n'}
+[6.038884] (hardware_vllm_control) StdoutLine: {'line': b'running install_scripts\n'}
+[6.132503] (-) TimerEvent: {}
+[6.233117] (-) TimerEvent: {}
+[6.333685] (-) TimerEvent: {}
+[6.434199] (-) TimerEvent: {}
+[6.534737] (-) TimerEvent: {}
+[6.635304] (-) TimerEvent: {}
+[6.671633] (hardware_vllm_control) StdoutLine: {'line': b'Installing gpt_command script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control\n'}
+[6.672500] (hardware_vllm_control) StdoutLine: {'line': b'Installing image_saver script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control\n'}
+[6.673217] (hardware_vllm_control) StdoutLine: {'line': b'Installing manual_control script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control\n'}
+[6.673880] (hardware_vllm_control) StdoutLine: {'line': b'Installing thrust_control script to /home/ioes/vllm_control_ws/install/hardware_vllm_control/lib/hardware_vllm_control\n'}
+[6.675404] (hardware_vllm_control) StdoutLine: {'line': b"writing list of installed files to '/home/ioes/vllm_control_ws/build/hardware_vllm_control/install.log'\n"}
+[6.735537] (-) TimerEvent: {}
+[6.820409] (hardware_vllm_control) CommandEnded: {'returncode': 0}
+[6.835769] (-) TimerEvent: {}
+[6.864202] (hardware_vllm_control) JobEnded: {'identifier': 'hardware_vllm_control', 'rc': 0}
+[6.866759] (-) EventReactorShutdown: {}

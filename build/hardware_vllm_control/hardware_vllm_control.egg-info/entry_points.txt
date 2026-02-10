@@ -1,0 +1,5 @@
+[console_scripts]
+gpt_command = hardware_vllm_control.gpt_command:main
+image_saver = hardware_vllm_control.image_saver:main
+manual_control = hardware_vllm_control.manual_control:main
+thrust_control = hardware_vllm_control.thrust_control:main
