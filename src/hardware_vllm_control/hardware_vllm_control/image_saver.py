@@ -8,6 +8,9 @@ from rclpy.node import Node
 
 import lgpio
 
+import cv2
+import numpy as np
+
 
 class RpicamTimelapseNode(Node):
     def __init__(self):
@@ -15,8 +18,6 @@ class RpicamTimelapseNode(Node):
 
         # ===== GPIO 설정 =====
         self.led_pins = [23, 27, 21]
-
-        # GPIO 초기화
         self.gpio_handle = lgpio.gpiochip_open(0)
 
         for pin in self.led_pins:
@@ -33,27 +34,66 @@ class RpicamTimelapseNode(Node):
 
         os.makedirs(self.output_dir, exist_ok=True)
 
+        # 해상도 고정
+        self.width = 1920
+        self.height = 1080
+
+        # ===== 캘리브레이션 YAML 경로 (네 경로로 수정) =====
+        self.calib_yaml = os.path.expanduser('/home/ioes/vllm_control_ws/src/hardware_vllm_control/hardware_vllm_control/ship_cam.yaml')
+
+        # ===== undistort 준비 (K, D, map 1회 계산) =====
+        self.K, self.D = self.load_calibration(self.calib_yaml)
+        self.map1, self.map2, self.newK = self.prepare_undistort_maps(self.K, self.D, self.width, self.height)
+
+        self.get_logger().info(
+            f"[CALIB] Loaded: {self.calib_yaml}\n"
+            f"  fx={self.K[0,0]:.3f}, fy={self.K[1,1]:.3f}, cx={self.K[0,2]:.3f}, cy={self.K[1,2]:.3f}\n"
+            f"[UNDIST] alpha=1.0 (no crop), newK fx={self.newK[0,0]:.3f}, fy={self.newK[1,1]:.3f}"
+        )
+
         self.counter = self.find_start_index()
         self.timer = self.create_timer(self.interval_sec, self.capture_once)
 
         self.get_logger().info(
-            f"[image_saver] 시작: {self.interval_sec}초마다 1장씩 캡처\n"
+            f"[image_saver] 시작: {self.interval_sec}초마다 1장씩 캡처 + undistort 덮어쓰기\n"
             f"저장 경로: {self.output_dir}, 시작 인덱스: {self.counter}"
         )
 
+    def load_calibration(self, yaml_path: str):
+        if not os.path.exists(yaml_path):
+            raise FileNotFoundError(f"Calibration yaml not found: {yaml_path}")
+
+        fs = cv2.FileStorage(yaml_path, cv2.FILE_STORAGE_READ)
+        if not fs.isOpened():
+            raise RuntimeError(f"Failed to open calibration yaml: {yaml_path}")
+
+        K = fs.getNode("camera_matrix").mat()
+        D = fs.getNode("distortion_coefficients").mat()
+        fs.release()
+
+        if K is None or D is None:
+            raise RuntimeError("camera_matrix or distortion_coefficients missing in yaml")
+
+        K = np.array(K, dtype=np.float64)
+        D = np.array(D, dtype=np.float64).reshape(-1, 1)
+        return K, D
+
+    def prepare_undistort_maps(self, K, D, w: int, h: int):
+        # alpha=1.0 => 최대한 FOV 유지(검은 테두리 가능), crop 없음
+        newK, _roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 1.0, (w, h))
+        map1, map2 = cv2.initUndistortRectifyMap(K, D, None, newK, (w, h), cv2.CV_16SC2)
+        return map1, map2, newK
+
     def find_start_index(self) -> int:
         import re
-        pattern = re.compile(
-            rf"{self.filename_prefix}(\d+){self.filename_ext}"
-        )
+        pattern = re.compile(rf"{self.filename_prefix}(\d+){self.filename_ext}")
         max_idx = -1
 
         for f in os.listdir(self.output_dir):
             m = pattern.fullmatch(f)
             if m:
                 idx = int(m.group(1))
-                if idx > max_idx:
-                    max_idx = idx
+                max_idx = max(max_idx, idx)
 
         return max_idx + 1
 
@@ -62,61 +102,85 @@ class RpicamTimelapseNode(Node):
         return os.path.join(self.output_dir, filename)
 
     def capture_once(self):
-        output_path = self.build_output_path()
+        final_path = self.build_output_path()
+
+        # 임시 파일들(같은 폴더에 두는 게 rename/replace가 안전)
+        raw_tmp = final_path.replace(self.filename_ext, f"_raw{self.filename_ext}")
+        undist_tmp = final_path.replace(self.filename_ext, f"_undist_tmp{self.filename_ext}")
 
         cmd = [
             'rpicam-jpeg',
             '-n',
             '-t', '1000',
-            '--width', '1920',
-            '--height', '1080',
+            '--width', str(self.width),
+            '--height', str(self.height),
             '-q', '85',
-            '-o', output_path,
+            '-o', raw_tmp,
         ]
 
-        self.get_logger().info(
-            f"[image_saver] 캡처 실행: {' '.join(shlex.quote(c) for c in cmd)}"
-        )
+        self.get_logger().info(f"[image_saver] 캡처 실행: {' '.join(shlex.quote(c) for c in cmd)}")
 
         try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            if result.returncode != 0:
+                self.get_logger().error(f"[image_saver] 캡처 실패 code={result.returncode}")
+                return
+
+            img = cv2.imread(raw_tmp, cv2.IMREAD_COLOR)
+            if img is None:
+                self.get_logger().error(f"[UNDIST] Failed to read raw image: {raw_tmp}")
+                return
+
+            undist = cv2.remap(
+                img, self.map1, self.map2,
+                interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT
             )
 
-            if result.returncode == 0:
-                self.get_logger().info(f"[image_saver] 성공 → {output_path}")
-                self.counter += 1
-            else:
-                self.get_logger().error(
-                    f"[image_saver] 실패 code={result.returncode}"
-                )
+            ok = cv2.imwrite(undist_tmp, undist, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            if not ok:
+                self.get_logger().error(f"[UNDIST] Failed to write temp undist image: {undist_tmp}")
+                return
+
+            # ✅ 최종 파일명으로 "원자적 교체"
+            os.replace(undist_tmp, final_path)
+
+            # raw 임시 파일 정리(원본 필요없으니 삭제)
+            try:
+                os.remove(raw_tmp)
+            except Exception:
+                pass
+
+            self.get_logger().info(f"[image_saver] 성공(undist overwrite) → {final_path}")
+            self.counter += 1
 
         except Exception as e:
             self.get_logger().error(f"[image_saver] 예외: {e}")
 
-    def destroy_node(self):
-        # 종료 시 LED OFF
-        self.get_logger().info("[GPIO] LED OFF 및 GPIO 정리")
+            # 실패 시 남은 tmp 정리 시도
+            for p in (raw_tmp, undist_tmp):
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except Exception:
+                    pass
 
+    def destroy_node(self):
+        self.get_logger().info("[GPIO] LED OFF 및 GPIO 정리")
         for pin in self.led_pins:
             lgpio.gpio_write(self.gpio_handle, pin, 0)
-
         lgpio.gpiochip_close(self.gpio_handle)
-
         super().destroy_node()
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = RpicamTimelapseNode()
-
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-
     node.destroy_node()
     rclpy.shutdown()
 
