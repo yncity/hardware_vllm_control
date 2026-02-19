@@ -3,6 +3,10 @@ import os
 import re
 import base64
 import threading
+import lgpio
+import threading
+import time
+
 from typing import List, Optional, Tuple, Literal
 
 import rclpy
@@ -12,6 +16,9 @@ from std_msgs.msg import String, Bool
 from openai import OpenAI
 from pydantic import BaseModel
 
+#GPIO num
+GPT_LED_GPIO = 15
+GPT_BLINK_DT = 0.5   # 0.12초마다 토글(조금 빠른 반짝)
 
 # =========================
 # Pydantic output contracts (Structured Outputs via responses.parse)
@@ -81,89 +88,194 @@ class GPTImageRobotController(Node):
         # Loop timer (seconds)
         self.timer_period = 5.0
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
+        
+        # =========================
+        # GPT processing LED (GPIO15 blink while calling OpenAI)
+        # =========================
+        self.gpio_handle = lgpio.gpiochip_open(0)
+        lgpio.gpio_claim_output(self.gpio_handle, GPT_LED_GPIO)
+        lgpio.gpio_write(self.gpio_handle, GPT_LED_GPIO, 0)  # 기본 OFF
+
+        self._gpt_led_lock = threading.Lock()
+        self._gpt_led_refcount = 0
+        self._gpt_led_stop_evt = threading.Event()
+        self._gpt_led_thread = None
+        self._gpt_led_state = 0
+
 
         # =========================
         # Prompts (Verbose, paper-ready)
         # =========================
 
         self.THREAT_PROMPT = (
-            "You are an immediate collision risk gate for a small autonomous surface water drone (USV).\n\n"
-            "Platform context:\n"
-            "- USV size: approx 0.50 m long and 0.265 m wide.\n\n"
-            "Camera context:\n"
-            "- Camera: Raspberry Pi IMX219 (Camera Module v2 class), wide-angle.\n"
-            "- Max still: 3280x2464 (8MP). Typical FoV ~62.2 deg (H) x ~48.8 deg (V).\n"
-            "- Wide-angle edge distortion exists; prioritize threats in the central forward corridor.\n"
-            "- Image left = USV left.\n\n"
+            "You are an immediate collision risk assessment module for a small autonomous surface water drone.\n\n"
+
+            "Platform and camera context:\n"
+            "- The drone is a small real-world twin-hull surface vehicle (catamaran).\n"
+            "- Approximate size: 0.50 m long and 0.265 m wide.\n"
+            "- Camera: Raspberry Pi IMX219.\n"
+            "- Image resolution: 1920x1080.\n"
+            "- Camera height above water: about 0.133 m.\n"
+            "- Images are distortion-corrected.\n"
+            "- The camera is mounted on a floating robot, so small motion and vibration may appear in the images due to water movement.\n"
+            "- The left side of the image corresponds to the left side of the drone.\n\n"
+
             "Task:\n"
-            "Assess ONLY the current image. No memory, no other sensors.\n"
-            "Return a single decision: move or stop.\n\n"
-            "Rules (be conservative):\n"
-            "- If any non-duck obstacle is in the central forward corridor, choose stop.\n"
-            "- If an obstacle looks very near (e.g., touches the bottom edge near the center, or occupies a large fraction of the image height), choose stop.\n"
-            "- If the yellow duck is centered and looks very near, choose stop.\n"
-            "- Otherwise choose move.\n\n"
+            "Assess immediate collision risk based only on the current image.\n"
+            "Do not assume any information from previous frames or external sensors.\n\n"
+
+            "Rules:\n"
+            "- If any obstacle (walls, buoys, floating objects, structures, etc.) appears very close and directly blocks the forward motion, select \"stop\".\n"
+            "- If the yellow goal-post target is extremely close and centered, select \"stop\".\n"
+            "- Otherwise, select \"move\".\n\n"
+
+            "Important:\n"
+            "- Use visual reasoning to estimate proximity.\n"
+            "- Do not rely on exact physical distance or pixel thresholds.\n"
+            "- Be conservative but avoid unnecessary stopping.\n\n"
+
             "Fallback:\n"
-            "If uncertain, choose stop.\n"
+            "If uncertain, select \"move\".\n"
         )
+
 
 
         self.DECISION_PROMPT = (
-            "You are a navigation decision module for a small autonomous surface water drone (USV).\n\n"
-            "Platform context:\n"
-            "- USV size: approx 0.50 m long and 0.265 m wide.\n\n"
-            "Camera context:\n"
-            "- Camera: Raspberry Pi IMX219 (Camera Module v2 class), wide-angle.\n"
-            "- Typical FoV ~62.2 deg (H) x ~48.8 deg (V). Edge distortion can stretch objects near borders.\n"
-            "- Image left = USV left.\n"
-            "- Actions: w=forward, a=turn/steer left, d=turn/steer right, s=reverse.\n\n"
+            "You are a navigation decision module for a small real-world autonomous surface water drone.\n\n"
+
+            "Platform and camera context:\n"
+            "- The drone is a small twin-hull (catamaran-style) robot.\n"
+            "- Approximate size: 0.50 m long and 0.265 m wide.\n"
+            "- Camera: Raspberry Pi IMX219.\n"
+            "- Image resolution: 1920x1080.\n"
+            "- Camera height above water: about 0.133 m.\n"
+            "- Images are distortion-corrected.\n"
+            "- The camera is mounted on a floating robot, so small motion and vibration may appear in the images due to water movement.\n"
+            "- The left side of the image corresponds to the left side of the drone.\n\n"
+
+            "Target:\n"
+            "- The goal is a fixed yellow soccer goal-post.\n"
+            "- The goal-post is entirely yellow and has a rectangular frame structure.\n\n"
+
             "Task:\n"
-            "From ONLY the current image, output:\n"
-            "- decision: move or stop\n"
-            "- direction: one of w/a/s/d\n"
-            "- duck_found: true/false\n"
-            "- duck_position: center or left/right-Ndeg (N in 5,10,15,20,25,30,35,40,45) or unknown\n\n"
-            "Duck reporting:\n"
-            "- If no duck is clearly visible: duck_found=false and duck_position=unknown.\n"
-            "- If visible: duck_found=true and duck_position based on horizontal offset.\n"
-            "- Use center for within ±5 degrees.\n"
-            "- ASCII only.\n\n"
-            "Decision logic:\n"
-            "1) Safety first:\n"
-            "   - If an obstacle is in the forward corridor or looks very near, set decision=stop and direction=s (or stop).\n"
-            "2) If duck is visible:\n"
-            "   - Duck left -> move + a, Duck right -> move + d.\n"
-            "   - Duck near center and forward corridor clear -> move + w.\n"
-            "   - Duck centered and looks very near -> stop.\n"
-            "3) If duck is NOT visible:\n"
-            "   - Prefer scanning turns (a or d) rather than forward motion, unless the forward corridor is clearly open.\n\n"
+            "Based only on the current image, decide whether to move or stop, choose a movement direction, "
+            "and report goal visibility and approximate position.\n"
+            "Do not assume any information from previous frames or external sensors.\n\n"
+
+            "Goal reporting:\n"
+            "- If the yellow goal-post is not clearly visible: goal_found=false and goal_position=\"unknown\".\n"
+            "- If visible: goal_found=true and goal_position must be:\n"
+            "  \"center\" OR \"left-Ndeg\" or \"right-Ndeg\".\n"
+            "- Use ASCII only.\n\n"
+
+            "Decision rules:\n"
+            "1. Safety has the highest priority.\n"
+            "2. If there are no visible obstacles and the goal is not visible, rotate or explore to search.\n"
+            "3. If the goal is visible and far, approach it while avoiding obstacles.\n"
+            "4. If the goal is centered and very close, select \"stop\".\n"
+            "5. If obstacles appear close, adjust direction to avoid them before approaching the goal.\n\n"
+
+            "Important:\n"
+            "- Use visual reasoning.\n"
+            "- Do not use fixed thresholds.\n"
+            "- Prefer smooth and safe navigation.\n\n"
+
             "Fallback:\n"
-            "If uncertain, choose stop.\n"
+            "If uncertain, choose a conservative direction.\n"
         )
+
 
 
         self.PATH_PROMPT = (
-            "You are a short-horizon path planner for a small autonomous surface water drone (USV).\n\n"
-            "Platform context:\n"
-            "- USV size: approx 0.50 m long and 0.265 m wide.\n\n"
-            "Camera context:\n"
-            "- Camera: Raspberry Pi IMX219 (Camera Module v2 class), wide-angle.\n"
-            "- Typical FoV ~62.2 deg (H) x ~48.8 deg (V). Edge distortion exists.\n"
-            "- Image left = USV left.\n"
-            "- Actions: w=forward, a=steer/turn left, d=steer/turn right, s=reverse.\n\n"
+            "You are a short-horizon path planning module for a small real-world autonomous surface water drone.\n\n"
+
+            "Platform and camera context:\n"
+            "- Twin-hull robot, about 0.50 m long and 0.265 m wide.\n"
+            "- Camera: Raspberry Pi IMX219.\n"
+            "- Image resolution: 1920x1080.\n"
+            "- Camera height above water: about 0.133 m.\n"
+            "- Images are distortion-corrected.\n"
+            "- The camera is mounted on a floating robot, so small motion and vibration may appear in the images due to water movement.\n"
+            "- The left side of the image corresponds to the left side of the drone.\n\n"
+
+            "Target:\n"
+            "- The target is a fixed yellow soccer goal-post.\n\n"
+
             "Task:\n"
-            "From ONLY the current image, output a short list of actions (w/a/s/d) to approach the yellow duck if visible,\n"
-            "while avoiding obstacles.\n\n"
+            "Based only on the current image, output a short sequence of actions to approach the goal safely.\n\n"
+
             "Rules:\n"
-            "- If duck is not visible: return a short scan path like [\"a\",\"a\"] or [\"d\",\"d\"].\n"
-            "- If duck is left: include a actions to bring it toward center.\n"
-            "- If duck is right: include d actions to bring it toward center.\n"
-            "- After duck is near center and forward corridor is clear: include w to approach.\n"
-            "- If obstacles block the forward corridor: steer away first (a/d), or reverse (s) if extremely tight.\n"
-            "- If duck is centered and looks very near: return an empty path.\n\n"
+            "- If the goal is visible on the left, include \"a\" actions.\n"
+            "- If the goal is visible on the right, include \"d\" actions.\n"
+            "- When the goal is near the center and the path looks safe, include \"w\".\n"
+            "- If obstacles appear close, avoid them first.\n"
+            "- If the goal is extremely close, return an empty path.\n\n"
+
+            "Priority:\n"
+            "Collision avoidance has higher priority.\n\n"
+
             "Fallback:\n"
-            "If safe forward motion is not clear, return turn-only actions (a/d).\n"
+            "Rotate to search for a safer direction.\n"
         )
+
+    # =========================
+    # LED control for GPT processing indication
+    # =========================
+    
+    def _gpt_led_worker(self):
+        # stop 이벤트가 set될 때까지 토글
+        try:
+            while not self._gpt_led_stop_evt.is_set():
+                self._gpt_led_state = 0 if self._gpt_led_state else 1
+                lgpio.gpio_write(self.gpio_handle, GPT_LED_GPIO, self._gpt_led_state)
+                time.sleep(GPT_BLINK_DT)
+        finally:
+            # 종료 시 OFF로 복귀(원하면 1로 바꿔도 됨)
+            self._gpt_led_state = 0
+            try:
+                lgpio.gpio_write(self.gpio_handle, GPT_LED_GPIO, 0)
+            except Exception:
+                pass
+
+    def _gpt_led_start(self):
+        # 중첩 호출 대응(refcount)
+        with self._gpt_led_lock:
+            self._gpt_led_refcount += 1
+            if self._gpt_led_refcount > 1:
+                return
+
+            # 첫 시작일 때만 스레드 시작
+            self._gpt_led_stop_evt.clear()
+            self._gpt_led_thread = threading.Thread(target=self._gpt_led_worker, daemon=True)
+            self._gpt_led_thread.start()
+
+    def _gpt_led_stop(self):
+        with self._gpt_led_lock:
+            if self._gpt_led_refcount == 0:
+                return
+            self._gpt_led_refcount -= 1
+            if self._gpt_led_refcount > 0:
+                return
+
+            # refcount가 0이 될 때만 실제 종료
+            self._gpt_led_stop_evt.set()
+            
+    def destroy_node(self):
+    # GPT LED thread 정리
+    try:
+        self._gpt_led_stop_evt.set()
+        if self._gpt_led_thread is not None:
+            self._gpt_led_thread.join(timeout=0.5)
+    except Exception:
+        pass
+
+    try:
+        lgpio.gpio_write(self.gpio_handle, GPT_LED_GPIO, 0)
+        lgpio.gpiochip_close(self.gpio_handle)
+    except Exception:
+        pass
+
+    super().destroy_node()
 
 
     def thrust_busy_callback(self, msg: Bool):
@@ -253,6 +365,9 @@ class GPTImageRobotController(Node):
         """
         image_url = self._data_url_from_image(image_path, image_b64)
 
+        # ✅ OpenAI 호출 동안 GPIO15 blink 시작
+        self._gpt_led_start()
+        
         try:
             resp = self.client.responses.parse(
                 model=self.model_name,
