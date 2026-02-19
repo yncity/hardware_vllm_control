@@ -17,8 +17,8 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 #GPIO num
-GPT_LED_GPIO = 15
-GPT_BLINK_DT = 0.5   # 0.12초마다 토글(조금 빠른 반짝)
+GPT_LED_GPIO = 22
+GPT_BLINK_DT = 0.5   # 0.5초마다 토글(조금 빠른 반짝)
 
 # =========================
 # Pydantic output contracts (Structured Outputs via responses.parse)
@@ -259,25 +259,23 @@ class GPTImageRobotController(Node):
 
             # refcount가 0이 될 때만 실제 종료
             self._gpt_led_stop_evt.set()
-            
-    def destroy_node(self):
-    # GPT LED thread 정리
-    try:
-        self._gpt_led_stop_evt.set()
-        if self._gpt_led_thread is not None:
-            self._gpt_led_thread.join(timeout=0.5)
-    except Exception:
-        pass
 
     try:
         lgpio.gpio_write(self.gpio_handle, GPT_LED_GPIO, 0)
         lgpio.gpiochip_close(self.gpio_handle)
     except Exception:
         pass
+        super().destroy_node()
 
-    super().destroy_node()
-
-
+    # GPT LED thread 정리            
+    def destroy_node(self):
+        try:
+            self._gpt_led_stop_evt.set()
+            if self._gpt_led_thread is not None:
+                self._gpt_led_thread.join(timeout=0.5)
+        except Exception:
+            pass
+    
     def thrust_busy_callback(self, msg: Bool):
         self.thrust_is_busy = msg.data
 
