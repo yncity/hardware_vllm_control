@@ -3,6 +3,7 @@ import os
 import re
 import base64
 import threading
+import time
 from typing import List, Optional, Tuple, Literal
 
 import rclpy
@@ -13,9 +14,24 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 # =========================
+# GPT COMMAND LED (BCM GPIO22)
+# - GPT 호출 중: 0.5초 주기로 깜빡임
+# - 평소: OFF
+# =========================
+USE_GPT_LED = True
+GPT_LED_GPIO = 22
+GPT_BLINK_DT = 0.5
+
+try:
+    import lgpio
+except Exception:
+    lgpio = None
+    USE_GPT_LED = False
+
+
+# =========================
 # Pydantic output contracts (Structured Outputs via responses.parse)
 # =========================
-
 DuckPos = Literal[
     "unknown", "center",
     "left-5deg", "left-10deg", "left-15deg", "left-20deg", "left-25deg",
@@ -23,7 +39,6 @@ DuckPos = Literal[
     "right-5deg", "right-10deg", "right-15deg", "right-20deg", "right-25deg",
     "right-30deg", "right-35deg", "right-40deg", "right-45deg",
 ]
-
 MoveStop = Literal["move", "stop"]
 WASD = Literal["w", "a", "s", "d"]
 
@@ -78,6 +93,7 @@ class GPTImageRobotController(Node):
         self.timer_period = 5.0
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
+
         # =========================
         # Prompts (Verbose, paper-ready)
         # =========================
@@ -90,6 +106,8 @@ class GPTImageRobotController(Node):
             "- Camera: Raspberry Pi IMX219.\n"
             "- Image resolution: 1920x1080.\n"
             "- Camera height above water: about 0.133 m.\n"
+            "- Camera intrinsics (calibrated): fx=1483.34, fy=744.90.\n"
+            "- Field of view (from intrinsics): HFOV~65.8 deg, VFOV~71.9 deg (Diag~88.4 deg).\n"
             "- Images are distortion-corrected.\n"
             "- The camera is mounted on a floating robot, so small motion and vibration may appear in the images due to water movement.\n"
             "- The left side of the image corresponds to the left side of the drone.\n\n"
@@ -115,6 +133,8 @@ class GPTImageRobotController(Node):
             "- Approximate size: 0.50 m long and 0.265 m wide.\n"
             "- Camera: Raspberry Pi IMX219.\n"
             "- Image resolution: 1920x1080.\n"
+            "- Camera intrinsics (calibrated): fx=1483.34, fy=744.90.\n"
+            "- Field of view (from intrinsics): HFOV~65.8 deg, VFOV~71.9 deg (Diag~88.4 deg).\n"
             "- Camera height above water: about 0.133 m.\n"
             "- Images are distortion-corrected.\n"
             "- The camera is mounted on a floating robot, so small motion and vibration may appear in the images due to water movement.\n"
@@ -151,6 +171,8 @@ class GPTImageRobotController(Node):
             "- Twin-hull robot, about 0.50 m long and 0.265 m wide.\n"
             "- Camera: Raspberry Pi IMX219.\n"
             "- Image resolution: 1920x1080.\n"
+            "- Camera intrinsics (calibrated): fx=1483.34, fy=744.90.\n"
+            "- Field of view (from intrinsics): HFOV~65.8 deg, VFOV~71.9 deg (Diag~88.4 deg).\n"
             "- Camera height above water: about 0.133 m.\n"
             "- Images are distortion-corrected.\n"
             "- The camera is mounted on a floating robot, so small motion and vibration may appear in the images due to water movement.\n"
@@ -171,8 +193,108 @@ class GPTImageRobotController(Node):
             "Rotate to search for a safer direction.\n"
         )
 
+
+        # =========================
+        # GPT LED (GPIO22)
+        # =========================
+        self._led_enabled = False
+        self._led_handle = None
+        self._led_state = 0
+        self._led_lock = threading.Lock()
+        self._led_refcount = 0
+        self._led_stop_evt = threading.Event()
+        self._led_thread = None
+
+        if USE_GPT_LED and (lgpio is not None):
+            self._init_gpt_led()
+        else:
+            self.get_logger().info("[GPT LED] disabled (lgpio unavailable)")
+
+    # =========================
+    # GPIO22 LED: init / worker / start-stop / cleanup
+    # =========================
+    def _init_gpt_led(self):
+        try:
+            self._led_handle = lgpio.gpiochip_open(0)
+            lgpio.gpio_claim_output(self._led_handle, GPT_LED_GPIO)
+            lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # default OFF
+            self._led_enabled = True
+            self.get_logger().info(f"[GPT LED] enabled on GPIO{GPT_LED_GPIO}")
+        except Exception as e:
+            self._led_enabled = False
+            try:
+                if self._led_handle is not None:
+                    lgpio.gpiochip_close(self._led_handle)
+            except Exception:
+                pass
+            self._led_handle = None
+            self.get_logger().warn(f"[GPT LED] disabled (GPIO busy/unavailable): {e}")
+
+    def _led_worker(self):
+        try:
+            while not self._led_stop_evt.is_set():
+                self._led_state = 0 if self._led_state else 1
+                try:
+                    lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, self._led_state)
+                except Exception:
+                    pass
+                time.sleep(GPT_BLINK_DT)
+        finally:
+            # turn OFF on exit
+            self._led_state = 0
+            try:
+                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 0)
+            except Exception:
+                pass
+
+    def _led_start(self):
+        if not self._led_enabled:
+            return
+        with self._led_lock:
+            self._led_refcount += 1
+            if self._led_refcount > 1:
+                return
+            self._led_stop_evt.clear()
+            self._led_thread = threading.Thread(target=self._led_worker, daemon=True)
+            self._led_thread.start()
+
+    def _led_stop(self):
+        if not self._led_enabled:
+            return
+        with self._led_lock:
+            if self._led_refcount == 0:
+                return
+            self._led_refcount -= 1
+            if self._led_refcount > 0:
+                return
+            self._led_stop_evt.set()
+
+    def destroy_node(self):
+        # stop LED thread + close gpio
+        try:
+            self._led_stop_evt.set()
+        except Exception:
+            pass
+
+        if self._led_enabled and (self._led_handle is not None):
+            try:
+                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 0)
+            except Exception:
+                pass
+            try:
+                lgpio.gpiochip_close(self._led_handle)
+            except Exception:
+                pass
+            self._led_handle = None
+            self._led_enabled = False
+
+        return super().destroy_node()
+
+    # =========================
+    # ROS callbacks
+    # =========================
     def thrust_busy_callback(self, msg: Bool):
-        self.thrust_is_busy = msg.data
+        self.thrust_is_busy = bool(msg.data)
 
     def timer_callback(self):
         if self.processing:
@@ -183,9 +305,11 @@ class GPTImageRobotController(Node):
         self.processing = True
         threading.Thread(target=self.main_process, daemon=True).start()
 
+    # =========================
+    # Motor publishing
+    # =========================
     def publish_motor_command(self, key: str):
         key = key.strip().lower()
-
         key_to_cmd = {
             "w": "forward",
             "a": "left",
@@ -193,19 +317,17 @@ class GPTImageRobotController(Node):
             "d": "right",
             "stop": "stop",
         }
-
         cmd = key_to_cmd.get(key)
         if cmd is None:
             self.get_logger().warn(f"[CMD MAP] Unknown key: {key}")
             return
-
         self.get_logger().info(f"[CMD PUB] /cmd_motor <- {cmd}")
         self.cmd_pub.publish(String(data=cmd))
 
+    # =========================
+    # Image helpers
+    # =========================
     def get_latest_image_path(self) -> Optional[str]:
-        """
-        Find the latest saved_image_<N>.(png|jpg|jpeg) in ~/saved_images
-        """
         image_dir = os.path.expanduser("~/saved_images")
         pattern = re.compile(r"saved_image_(\d+)\.(png|jpg|jpeg)$", re.IGNORECASE)
         try:
@@ -236,6 +358,9 @@ class GPTImageRobotController(Node):
             mime = "image/jpeg"
         return f"data:{mime};base64,{image_b64}"
 
+    # =========================
+    # OpenAI call (with GPIO22 blink during call)
+    # =========================
     def _call_parsed(
         self,
         *,
@@ -250,6 +375,8 @@ class GPTImageRobotController(Node):
     ):
         image_url = self._data_url_from_image(image_path, image_b64)
 
+        # GPT 호출 시작 -> LED blink start
+        self._led_start()
         try:
             resp = self.client.responses.parse(
                 model=self.model_name,
@@ -284,9 +411,14 @@ class GPTImageRobotController(Node):
             self.get_logger().error(f"[LLM ERROR][{tag}] {e}")
             return None
 
-    def threat_check(self, image_path: str, image_b64: str) -> str:
-        self.get_logger().info(f"[THREAT CHECK] Image: {image_path}")
+        finally:
+            # GPT 호출 종료 -> LED blink stop
+            self._led_stop()
 
+    # =========================
+    # Decision modules
+    # =========================
+    def threat_check(self, image_path: str, image_b64: str) -> str:
         parsed: Optional[ThreatOut] = self._call_parsed(
             system_prompt=self.THREAT_PROMPT,
             user_text="Assess immediate collision risk based only on this image and return a single decision.",
@@ -297,22 +429,15 @@ class GPTImageRobotController(Node):
             text_format_model=ThreatOut,
             tag="threat_check",
         )
-
         if parsed is None:
             self.get_logger().warn("[THREAT CHECK] No valid parsed output. Defaulting to STOP.")
             return "stop"
-
         return parsed.decision
 
     def nav_decision(self, image_path: str, image_b64: str) -> Tuple[Optional[str], Optional[str], bool, str]:
-        self.get_logger().info(f"[DECISION] Image: {image_path}")
-
         parsed: Optional[NavOut] = self._call_parsed(
             system_prompt=self.DECISION_PROMPT,
-            user_text=(
-                "Choose the next navigation action to reach the yellow duck if present, while prioritizing collision avoidance. "
-                "If no duck is clearly visible, choose a direction to search."
-            ),
+            user_text="Decide move/stop and direction (w/a/s/d). Report duck_found and duck_position.",
             image_path=image_path,
             image_b64=image_b64,
             reasoning_effort="low",
@@ -320,7 +445,6 @@ class GPTImageRobotController(Node):
             text_format_model=NavOut,
             tag="nav_decision",
         )
-
         if parsed is None:
             return None, None, False, "unknown"
 
@@ -338,14 +462,9 @@ class GPTImageRobotController(Node):
         return decision, direction, duck_found, duck_position
 
     def plan_path_actions(self, image_path: str, image_b64: str) -> List[str]:
-        self.get_logger().info(f"[PATH PLAN] Image: {image_path}")
-
         parsed: Optional[PathOut] = self._call_parsed(
             system_prompt=self.PATH_PROMPT,
-            user_text=(
-                "Generate a short discrete action sequence to approach the yellow duck if visible, while avoiding obstacles. "
-                "Return an empty path if the duck is centered and very close."
-            ),
+            user_text="Generate short action sequence (w/a/s/d). Empty path if already at goal.",
             image_path=image_path,
             image_b64=image_b64,
             reasoning_effort="medium",
@@ -353,27 +472,27 @@ class GPTImageRobotController(Node):
             text_format_model=PathOut,
             tag="path_plan",
         )
-
         if parsed is None:
             return []
-
         return [str(a) for a in parsed.path]
 
+    # =========================
+    # Main loop logic
+    # =========================
     def main_process(self):
         if self.thrust_is_busy:
+            self.processing = False
             return
+
         try:
             image_path = self.get_latest_image_path()
             if not image_path or not os.path.exists(image_path):
                 self.get_logger().warn("[IMAGE] No image found in ~/saved_images.")
                 return
 
-            self.get_logger().info(f"[IMAGE] Using latest image: {image_path}")
             image_b64 = self.image_to_base64(image_path)
 
-            # =====================
             # PATH MODE
-            # =====================
             if self.in_path_mode:
                 if self.current_step >= len(self.path_actions):
                     self.get_logger().info("[PATH MODE] Completed. Returning to normal mode.")
@@ -384,7 +503,7 @@ class GPTImageRobotController(Node):
 
                 image_path2 = self.get_latest_image_path()
                 if not image_path2 or not os.path.exists(image_path2):
-                    self.get_logger().warn("[PATH MODE] No image available. Stopping and aborting path mode.")
+                    self.get_logger().warn("[PATH MODE] No image available. Aborting path mode.")
                     self.in_path_mode = False
                     self.path_actions = []
                     self.current_step = 0
@@ -408,9 +527,7 @@ class GPTImageRobotController(Node):
                 self.current_step += 1
                 return
 
-            # =====================
-            # NORMAL MODE (Decision first)
-            # =====================
+            # NORMAL MODE
             decision, direction, duck_found, duck_position = self.nav_decision(image_path, image_b64)
             self.get_logger().info(
                 f"[STATE] decision={decision}, direction={direction}, duck_found={duck_found}, duck_position={duck_position}"
@@ -418,7 +535,6 @@ class GPTImageRobotController(Node):
 
             if duck_found:
                 self.get_logger().info("[NORMAL MODE] Duck found. Switching to PATH MODE.")
-
                 image_path2 = self.get_latest_image_path()
                 if not image_path2 or not os.path.exists(image_path2):
                     self.get_logger().warn("[PATH MODE] No image available at path start. Aborting.")
@@ -435,13 +551,13 @@ class GPTImageRobotController(Node):
                     return
 
                 self.in_path_mode = True
-
                 first = self.path_actions[0]
                 self.get_logger().info(f"[PATH MODE] Immediate step 1/{len(self.path_actions)}: {first}")
                 self.publish_motor_command(first)
                 self.current_step = 1
                 return
 
+            # searching in normal mode
             if decision == "stop":
                 self.publish_motor_command("stop")
             elif decision == "move" and direction in ("w", "a", "s", "d"):
