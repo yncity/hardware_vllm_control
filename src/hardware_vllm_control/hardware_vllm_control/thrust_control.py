@@ -2,7 +2,6 @@
 import time
 import pigpio
 import rclpy
-import lgpio
 
 from rclpy.node import Node
 from std_msgs.msg import String, Bool
@@ -24,10 +23,6 @@ RAMP_TIME_SEC = 0.5   # 목표 PWM 도달 시간
 RAMP_HZ = 50          # 램프 갱신 주기 (Hz)
 RAMP_DT = 1.0 / RAMP_HZ
 
-# LED 조작 (busy 동안 blink)
-LED_GPIO = 24
-BLINK_TOGGLE_DT = 0.25  # 0.25초마다 토글
-
 
 class MotorPwmNode(Node):
     def __init__(self):
@@ -42,24 +37,6 @@ class MotorPwmNode(Node):
         self.get_logger().info("초기 중립 신호(1500µs)를 양쪽 모터에 출력합니다 (arming).")
         self.set_both_pwm(PULSE_STOP_US)
         time.sleep(1.0)
-
-        # ===== LED(GPIO24) 제어 (GPIO busy면 LED 기능만 비활성화) =====
-        self.led_enabled = False
-        self.led_handle = None
-        self.led_state = 0
-        self.led_blink_timer = None
-
-        try:
-            self.led_handle = lgpio.gpiochip_open(0)
-            lgpio.gpio_claim_output(self.led_handle, LED_GPIO)
-            self.led_state = 1
-            lgpio.gpio_write(self.led_handle, LED_GPIO, self.led_state)  # 기본 ON
-            self.led_enabled = True
-            self.get_logger().info(f"[LED] GPIO{LED_GPIO} enabled (default ON).")
-        except Exception as e:
-            self.led_enabled = False
-            self.led_handle = None
-            self.get_logger().warn(f"[LED] disabled (GPIO busy/unavailable): {e}")
 
         # thrust_busy publish
         self.busy_pub = self.create_publisher(Bool, '/thrust_busy', 10)
@@ -103,17 +80,6 @@ class MotorPwmNode(Node):
         self.is_busy = bool(state)
         self.busy_pub.publish(Bool(data=self.is_busy))
 
-        # ===== LED 표시 정책 =====
-        if not self.led_enabled:
-            return
-
-        if self.is_busy:
-            # busy면 깜빡
-            self._start_led_blink()
-        else:
-            # idle이면 항상 ON으로 복귀
-            self._stop_led_blink(keep_on=True)
-
     # ===== S-curve easing: smoothstep(0->1) =====
     @staticmethod
     def _smoothstep(u: float) -> float:
@@ -128,7 +94,7 @@ class MotorPwmNode(Node):
         self.left_target = int(left_target)
         self.right_target = int(right_target)
 
-        # 시작값 저장 (현재 출력값 기준)
+        # 시작값 저장
         self.left_start = int(self.left_pulse)
         self.right_start = int(self.right_pulse)
 
@@ -151,7 +117,7 @@ class MotorPwmNode(Node):
         u = t / self.ramp_duration
         s = self._smoothstep(u)
 
-        # 보간(interpolation)
+        # 보간
         self.left_pulse = int(round(self.left_start + (self.left_target - self.left_start) * s))
         self.right_pulse = int(round(self.right_start + (self.right_target - self.right_start) * s))
 
@@ -184,7 +150,6 @@ class MotorPwmNode(Node):
             f"-> S-curve 램프 {RAMP_TIME_SEC}s"
         )
 
-        # 목표로 S-curve 램프
         self._start_ramp_to(left_pulse_us, right_pulse_us, duration=RAMP_TIME_SEC)
 
         # 기존 자동 정지 타이머 취소
@@ -253,73 +218,18 @@ class MotorPwmNode(Node):
             pass
 
         try:
-            # 먼저 busy 해제 (LED도 여기서 정지됨)
-            try:
-                self.publish_busy(False)
-            except Exception:
-                pass
+            # 먼저 busy 해제
+            self.publish_busy(False)
 
             # 중립 출력 후 PWM off
             self.set_both_pwm(PULSE_STOP_US)
             time.sleep(0.3)
             self.pi.set_servo_pulsewidth(LEFT_GPIO, 0)
             self.pi.set_servo_pulsewidth(RIGHT_GPIO, 0)
-
-            # LED 리소스 정리
-            if self.led_enabled and self.led_handle is not None:
-                try:
-                    self._stop_led_blink(keep_on=True)
-                except Exception:
-                    pass
-                try:
-                    lgpio.gpiochip_close(self.led_handle)
-                except Exception:
-                    pass
-
         except Exception as e:
-            self.get_logger().error(f"GPIO 정리 중 에러: {e}")
+            self.get_logger().error(f"정리 중 에러: {e}")
         finally:
             self.pi.stop()
-
-    # =========================
-    # LED 제어 함수들 (led_enabled 가드)
-    # =========================
-    def _start_led_blink(self):
-        if not self.led_enabled:
-            return
-
-        # 이미 깜빡이는 중이면 무시
-        if self.led_blink_timer is not None:
-            return
-
-        self.led_blink_timer = self.create_timer(BLINK_TOGGLE_DT, self._toggle_led)
-
-    def _stop_led_blink(self, keep_on: bool = True):
-        if self.led_blink_timer is not None:
-            self.led_blink_timer.cancel()
-            self.led_blink_timer = None
-
-        if not self.led_enabled or self.led_handle is None:
-            return
-
-        try:
-            if keep_on:
-                self.led_state = 1
-                lgpio.gpio_write(self.led_handle, LED_GPIO, 1)
-            else:
-                self.led_state = 0
-                lgpio.gpio_write(self.led_handle, LED_GPIO, 0)
-        except Exception:
-            pass
-
-    def _toggle_led(self):
-        if not self.led_enabled or self.led_handle is None:
-            return
-        try:
-            self.led_state = 0 if self.led_state else 1
-            lgpio.gpio_write(self.led_handle, LED_GPIO, self.led_state)
-        except Exception:
-            pass
 
 
 def main(args=None):

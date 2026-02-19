@@ -14,7 +14,7 @@ class RpicamTimelapseNode(Node):
         super().__init__('rpicam_timelapse_node')
 
         # ===== GPIO 설정 =====
-        self.led_pins = [23, 24, 27, 22, 21]
+        self.led_pins = [23, 27, 21]
 
         # GPIO 초기화
         self.gpio_handle = lgpio.gpiochip_open(0)
