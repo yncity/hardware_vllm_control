@@ -252,7 +252,7 @@ class GPTImageRobotController(Node):
             # turn OFF on exit
             self._led_state = 0
             try:
-                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 0)
+                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)
             except Exception:
                 pass
 
