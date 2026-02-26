@@ -230,7 +230,7 @@ class GPTImageRobotController(Node):
         try:
             self._led_handle = lgpio.gpiochip_open(0)
             lgpio.gpio_claim_output(self._led_handle, GPT_LED_GPIO)
-            lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # default OFF
+            lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # default On
             self._led_enabled = True
             self.get_logger().info(f"[GPT LED] enabled on GPIO{GPT_LED_GPIO}")
         except Exception as e:
@@ -253,7 +253,7 @@ class GPTImageRobotController(Node):
                     pass
                 time.sleep(GPT_BLINK_DT)
         finally:
-            # turn OFF on exit
+            # turn on exit
             self._led_state = 0
             try:
                 lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)
@@ -305,7 +305,7 @@ class GPTImageRobotController(Node):
 
         if self._led_enabled and (self._led_handle is not None):
             try:
-                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # OFF로 맞추기 (init과 동일)
+                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 0)  # OFF로 맞추기 (init과 동일)
             except Exception:
                 pass
             try:
