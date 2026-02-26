@@ -179,7 +179,7 @@ class RpicamTimelapseNode(Node):
             '-o', raw_tmp,
         ]
 
-        self.get_logger().info(f"[image_saver] 캡처 실행: {' '.join(shlex.quote(c) for c in cmd)}")
+        # self.get_logger().info(f"[image_saver] 캡처 실행: {' '.join(shlex.quote(c) for c in cmd)}")
 
         try:
             result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

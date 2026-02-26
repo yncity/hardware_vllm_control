@@ -20,6 +20,8 @@ PULSE_FORWARD_US = 1350
 PULSE_STOP_US    = 1500
 PULSE_BACK_US    = 1650
 
+PULSE_ROTATE_US  = 1400
+PULSE_ROTATE_US_2 = 1600
 # command hold (sec) then auto stop
 MOTION_DURATION_SEC = 1.0
 
@@ -233,9 +235,9 @@ class MotorPwmNode(Node):
         elif cmd == 'backward':
             self.start_motion_with_auto_stop("BACKWARD", PULSE_BACK_US, PULSE_BACK_US)
         elif cmd == 'left':
-            self.start_motion_with_auto_stop("LEFT", PULSE_BACK_US, PULSE_FORWARD_US)
+            self.start_motion_with_auto_stop("LEFT", PULSE_ROTATE_US_2, PULSE_ROTATE_US)
         elif cmd == 'right':
-            self.start_motion_with_auto_stop("RIGHT", PULSE_FORWARD_US, PULSE_BACK_US)
+            self.start_motion_with_auto_stop("RIGHT", PULSE_ROTATE_US, PULSE_ROTATE_US_2)
         elif cmd == 'stop':
             self.get_logger().info("명령: STOP (중립으로 S-curve 램프 다운)")
             if self.stop_timer is not None:

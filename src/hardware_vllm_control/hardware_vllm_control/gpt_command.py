@@ -401,7 +401,7 @@ class GPTImageRobotController(Node):
         tag: str,
     ):
         image_url = self._data_url_from_image(image_path, image_b64)
-
+        self.get_logger().info(image_path)
         # GPT 호출 시작 -> LED blink start
         self._led_start()
         try:
