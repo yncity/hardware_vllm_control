@@ -79,6 +79,10 @@ class GPTImageRobotController(Node):
         self.thrust_busy_sub = self.create_subscription(
             Bool, "/thrust_busy", self.thrust_busy_callback, 10
         )
+        
+        # 런타임 측정 시작 시각(ROS time)
+        self._run_start = self.get_clock().now()
+        self.get_logger().info(f"[RUNTIME] start_time={self._run_start.nanoseconds} (ns)")
 
         # Path mode state
         self.in_path_mode = False
@@ -279,7 +283,21 @@ class GPTImageRobotController(Node):
             self._led_stop_evt.set()
 
     def destroy_node(self):
-        # stop LED thread + close gpio
+        # 1) 런타임 측정 종료 시각(ROS time) - 가장 먼저!
+        try:
+            end = self.get_clock().now()
+            dt_ns = end.nanoseconds - self._run_start.nanoseconds
+            dt_s = dt_ns / 1e9
+            self.get_logger().info(
+                f"[RUNTIME] end_time={end.nanoseconds} (ns), elapsed={dt_s:.3f}s"
+            )
+        except Exception as e:
+            try:
+                self.get_logger().warn(f"[RUNTIME] failed to compute elapsed time: {e}")
+            except Exception:
+                pass
+
+        # 2) stop LED thread + close gpio
         try:
             self._led_stop_evt.set()
         except Exception:
@@ -287,7 +305,7 @@ class GPTImageRobotController(Node):
 
         if self._led_enabled and (self._led_handle is not None):
             try:
-                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 0)
+                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # OFF로 맞추기 (init과 동일)
             except Exception:
                 pass
             try:

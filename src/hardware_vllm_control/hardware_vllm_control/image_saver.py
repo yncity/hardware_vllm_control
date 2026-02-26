@@ -38,8 +38,10 @@ class RpicamTimelapseNode(Node):
         self.width = 1920
         self.height = 1080
 
-        # ===== 캘리브레이션 YAML 경로 (네 경로로 수정) =====
-        self.calib_yaml = os.path.expanduser('/home/ioes/vllm_control_ws/src/hardware_vllm_control/hardware_vllm_control/ship_cam.yaml')
+        # ===== 캘리브레이션 YAML 경로 =====
+        self.calib_yaml = os.path.expanduser(
+            '/home/ioes/vllm_control_ws/src/hardware_vllm_control/hardware_vllm_control/ship_cam.yaml'
+        )
 
         # ===== undistort 준비 (K, D, map 1회 계산) =====
         self.K, self.D = self.load_calibration(self.calib_yaml)
@@ -59,6 +61,9 @@ class RpicamTimelapseNode(Node):
             f"저장 경로: {self.output_dir}, 시작 인덱스: {self.counter}"
         )
 
+    # ------------------------
+    # Calibration / Undistort
+    # ------------------------
     def load_calibration(self, yaml_path: str):
         if not os.path.exists(yaml_path):
             raise FileNotFoundError(f"Calibration yaml not found: {yaml_path}")
@@ -84,6 +89,9 @@ class RpicamTimelapseNode(Node):
         map1, map2 = cv2.initUndistortRectifyMap(K, D, None, newK, (w, h), cv2.CV_16SC2)
         return map1, map2, newK
 
+    # ------------------------
+    # File naming / indexing
+    # ------------------------
     def find_start_index(self) -> int:
         import re
         pattern = re.compile(rf"{self.filename_prefix}(\d+){self.filename_ext}")
@@ -101,6 +109,59 @@ class RpicamTimelapseNode(Node):
         filename = f"{self.filename_prefix}{self.counter:06d}{self.filename_ext}"
         return os.path.join(self.output_dir, filename)
 
+    # ------------------------
+    # Experiment archive helpers
+    # ------------------------
+    def get_next_experiment_dir(self) -> str:
+        """~/exp_1, ~/exp_2 ... 중 가장 큰 번호를 찾아 +1 폴더 반환"""
+        home_dir = os.path.expanduser("~")
+
+        import re
+        pattern = re.compile(r"exp_(\d+)")
+
+        max_idx = 0
+        for name in os.listdir(home_dir):
+            full = os.path.join(home_dir, name)
+            if os.path.isdir(full):
+                m = pattern.fullmatch(name)
+                if m:
+                    idx = int(m.group(1))
+                    max_idx = max(max_idx, idx)
+
+        next_idx = max_idx + 1
+        return os.path.join(home_dir, f"exp_{next_idx}")
+
+    def archive_saved_images(self):
+        """노드 종료 시 saved_images 내부 파일을 ~/exp_N으로 이동"""
+        try:
+            target_dir = self.get_next_experiment_dir()
+            os.makedirs(target_dir, exist_ok=True)
+
+            files = os.listdir(self.output_dir)
+            if not files:
+                self.get_logger().info("[ARCHIVE] saved_images 비어 있음 → 이동 없음")
+                return
+
+            self.get_logger().info(f"[ARCHIVE] 보관 폴더 생성/사용: {target_dir}")
+
+            moved = 0
+            for f in files:
+                src = os.path.join(self.output_dir, f)
+                dst = os.path.join(target_dir, f)
+
+                # 파일만 이동 (혹시 디렉토리가 있으면 무시)
+                if os.path.isfile(src):
+                    os.replace(src, dst)
+                    moved += 1
+
+            self.get_logger().info(f"[ARCHIVE] 이동 완료: {moved}개 파일")
+
+        except Exception as e:
+            self.get_logger().error(f"[ARCHIVE] 실패: {e}")
+
+    # ------------------------
+    # Capture loop
+    # ------------------------
     def capture_once(self):
         final_path = self.build_output_path()
 
@@ -166,11 +227,33 @@ class RpicamTimelapseNode(Node):
                 except Exception:
                     pass
 
+    # ------------------------
+    # Shutdown / cleanup
+    # ------------------------
     def destroy_node(self):
+        self.get_logger().info("[NODE] 종료 시작")
+
+        # ✅ 안정성 개선: 타이머 먼저 중지 (종료 중 capture_once 재진입 방지)
+        try:
+            if hasattr(self, "timer") and self.timer is not None:
+                self.timer.cancel()
+                self.get_logger().info("[NODE] 타이머 cancel 완료")
+        except Exception as e:
+            self.get_logger().warn(f"[NODE] 타이머 cancel 실패(무시): {e}")
+
+        # ✅ 종료 시 이미지 보관
+        self.get_logger().info("[NODE] saved_images 이미지들 이동")
+        self.archive_saved_images()
+
+        # GPIO 정리
         self.get_logger().info("[GPIO] LED OFF 및 GPIO 정리")
-        for pin in self.led_pins:
-            lgpio.gpio_write(self.gpio_handle, pin, 0)
-        lgpio.gpiochip_close(self.gpio_handle)
+        try:
+            for pin in self.led_pins:
+                lgpio.gpio_write(self.gpio_handle, pin, 0)
+            lgpio.gpiochip_close(self.gpio_handle)
+        except Exception as e:
+            self.get_logger().warn(f"[GPIO] 정리 중 오류(무시): {e}")
+
         super().destroy_node()
 
 
