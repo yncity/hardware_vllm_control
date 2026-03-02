@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 # GPIO (BCM)
 # =========================
 LEFT_GPIO = 13
-RIGHT_GPIO = 18
+RIGHT_GPIO = 12
 
 # =========================
 # ESC pulse widths (microseconds)
