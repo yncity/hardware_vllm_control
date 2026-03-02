@@ -230,7 +230,7 @@ class GPTImageRobotController(Node):
         try:
             self._led_handle = lgpio.gpiochip_open(0)
             lgpio.gpio_claim_output(self._led_handle, GPT_LED_GPIO)
-            lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # default On
+            lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # default OFF
             self._led_enabled = True
             self.get_logger().info(f"[GPT LED] enabled on GPIO{GPT_LED_GPIO}")
         except Exception as e:
@@ -253,7 +253,7 @@ class GPTImageRobotController(Node):
                     pass
                 time.sleep(GPT_BLINK_DT)
         finally:
-            # turn on exit
+            # turn OFF on exit
             self._led_state = 0
             try:
                 lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)
@@ -305,7 +305,7 @@ class GPTImageRobotController(Node):
 
         if self._led_enabled and (self._led_handle is not None):
             try:
-                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 0)  # OFF로 맞추기 (init과 동일)
+                lgpio.gpio_write(self._led_handle, GPT_LED_GPIO, 1)  # OFF로 맞추기 (init과 동일)
             except Exception:
                 pass
             try:
@@ -488,20 +488,20 @@ class GPTImageRobotController(Node):
 
         return decision, direction, duck_found, duck_position
 
-    def plan_path_actions(self, image_path: str, image_b64: str) -> List[str]:
-        parsed: Optional[PathOut] = self._call_parsed(
-            system_prompt=self.PATH_PROMPT,
-            user_text="Generate short action sequence (w/a/s/d). Empty path if already at goal.",
-            image_path=image_path,
-            image_b64=image_b64,
-            reasoning_effort="medium",
-            max_output_tokens=256,
-            text_format_model=PathOut,
-            tag="path_plan",
-        )
-        if parsed is None:
-            return []
-        return [str(a) for a in parsed.path]
+    # def plan_path_actions(self, image_path: str, image_b64: str) -> List[str]:
+    #     parsed: Optional[PathOut] = self._call_parsed(
+    #         system_prompt=self.PATH_PROMPT,
+    #         user_text="Generate short action sequence (w/a/s/d). Empty path if already at goal.",
+    #         image_path=image_path,
+    #         image_b64=image_b64,
+    #         reasoning_effort="medium",
+    #         max_output_tokens=256,
+    #         text_format_model=PathOut,
+    #         tag="path_plan",
+    #     )
+    #     if parsed is None:
+    #         return []
+    #     return [str(a) for a in parsed.path]
 
     # =========================
     # Main loop logic
@@ -519,40 +519,40 @@ class GPTImageRobotController(Node):
 
             image_b64 = self.image_to_base64(image_path)
 
-            # PATH MODE
-            if self.in_path_mode:
-                if self.current_step >= len(self.path_actions):
-                    self.get_logger().info("[PATH MODE] Completed. Returning to normal mode.")
-                    self.in_path_mode = False
-                    self.path_actions = []
-                    self.current_step = 0
-                    return
+            # # PATH MODE
+            # if self.in_path_mode:
+            #     if self.current_step >= len(self.path_actions):
+            #         self.get_logger().info("[PATH MODE] Completed. Returning to normal mode.")
+            #         self.in_path_mode = False
+            #         self.path_actions = []
+            #         self.current_step = 0
+            #         return
 
-                image_path2 = self.get_latest_image_path()
-                if not image_path2 or not os.path.exists(image_path2):
-                    self.get_logger().warn("[PATH MODE] No image available. Aborting path mode.")
-                    self.in_path_mode = False
-                    self.path_actions = []
-                    self.current_step = 0
-                    self.publish_motor_command("stop")
-                    return
+            #     image_path2 = self.get_latest_image_path()
+            #     if not image_path2 or not os.path.exists(image_path2):
+            #         self.get_logger().warn("[PATH MODE] No image available. Aborting path mode.")
+            #         self.in_path_mode = False
+            #         self.path_actions = []
+            #         self.current_step = 0
+            #         self.publish_motor_command("stop")
+            #         return
 
-                image_b64_2 = self.image_to_base64(image_path2)
+            #     image_b64_2 = self.image_to_base64(image_path2)
 
-                gate = self.threat_check(image_path2, image_b64_2)
-                if gate == "stop":
-                    self.get_logger().warn("[PATH MODE] Threat gate STOP. Aborting path mode.")
-                    self.in_path_mode = False
-                    self.path_actions = []
-                    self.current_step = 0
-                    self.publish_motor_command("stop")
-                    return
+            #     gate = self.threat_check(image_path2, image_b64_2)
+            #     if gate == "stop":
+            #         self.get_logger().warn("[PATH MODE] Threat gate STOP. Aborting path mode.")
+            #         self.in_path_mode = False
+            #         self.path_actions = []
+            #         self.current_step = 0
+            #         self.publish_motor_command("stop")
+            #         return
 
-                cmd = self.path_actions[self.current_step]
-                self.get_logger().info(f"[PATH MODE] Step {self.current_step + 1}/{len(self.path_actions)}: {cmd}")
-                self.publish_motor_command(cmd)
-                self.current_step += 1
-                return
+            #     cmd = self.path_actions[self.current_step]
+            #     self.get_logger().info(f"[PATH MODE] Step {self.current_step + 1}/{len(self.path_actions)}: {cmd}")
+            #     self.publish_motor_command(cmd)
+            #     self.current_step += 1
+            #     return
 
             # NORMAL MODE
             decision, direction, duck_found, duck_position = self.nav_decision(image_path, image_b64)
@@ -560,29 +560,29 @@ class GPTImageRobotController(Node):
                 f"[STATE] decision={decision}, direction={direction}, duck_found={duck_found}, duck_position={duck_position}"
             )
 
-            if duck_found:
-                self.get_logger().info("[NORMAL MODE] Duck found. Switching to PATH MODE.")
-                image_path2 = self.get_latest_image_path()
-                if not image_path2 or not os.path.exists(image_path2):
-                    self.get_logger().warn("[PATH MODE] No image available at path start. Aborting.")
-                    return
+            # if duck_found:
+            #     self.get_logger().info("[NORMAL MODE] Duck found. Switching to PATH MODE.")
+            #     image_path2 = self.get_latest_image_path()
+            #     if not image_path2 or not os.path.exists(image_path2):
+            #         self.get_logger().warn("[PATH MODE] No image available at path start. Aborting.")
+            #         return
 
-                image_b64_2 = self.image_to_base64(image_path2)
-                self.path_actions = self.plan_path_actions(image_path2, image_b64_2)
-                self.current_step = 0
+            #     image_b64_2 = self.image_to_base64(image_path2)
+            #     self.path_actions = self.plan_path_actions(image_path2, image_b64_2)
+            #     self.current_step = 0
 
-                if not self.path_actions:
-                    self.get_logger().info("[PATH MODE] Empty path. Stopping and returning to normal mode.")
-                    self.publish_motor_command("stop")
-                    self.in_path_mode = False
-                    return
+            #     if not self.path_actions:
+            #         self.get_logger().info("[PATH MODE] Empty path. Stopping and returning to normal mode.")
+            #         self.publish_motor_command("stop")
+            #         self.in_path_mode = False
+            #         return
 
-                self.in_path_mode = True
-                first = self.path_actions[0]
-                self.get_logger().info(f"[PATH MODE] Immediate step 1/{len(self.path_actions)}: {first}")
-                self.publish_motor_command(first)
-                self.current_step = 1
-                return
+            #     self.in_path_mode = True
+            #     first = self.path_actions[0]
+            #     self.get_logger().info(f"[PATH MODE] Immediate step 1/{len(self.path_actions)}: {first}")
+            #     self.publish_motor_command(first)
+            #     self.current_step = 1
+            #     return
 
             # searching in normal mode
             if decision == "stop":
